@@ -1,8 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { api } from '../lib/api'
-
-export default function Product() {
   const { slug } = useParams()
   const [product, setProduct] = useState<any>()
 
@@ -23,27 +19,38 @@ export default function Product() {
   if (!product) return null
 
   return (
-    <div className="max-w-6xl mx-auto p-8 grid md:grid-cols-2 gap-8">
-      <img src={product.image_url} className="rounded-2xl" />
+    <div className="pt-32 px-6 pb-20 max-w-7xl mx-auto grid lg:grid-cols-2 gap-16">
+      <div>
+        <img
+          src={product.image_url}
+          className="rounded-3xl w-full"
+        />
+      </div>
 
       <div>
-        <h1 className="text-5xl font-black mb-4">
+        <p className="uppercase tracking-[0.3em] text-red-600 mb-4">
+          AFFB Official
+        </p>
+
+        <h1 className="text-6xl font-black uppercase mb-6">
           {product.title}
         </h1>
 
-        <p className="text-zinc-300 mb-6">
+        <p className="text-zinc-400 text-lg leading-relaxed mb-10">
           {product.description}
         </p>
 
-        <p className="text-3xl text-red-500 mb-6">
-          {product.price} €
-        </p>
+        <div className="flex items-center gap-6 mb-10">
+          <span className="text-5xl text-red-500 font-black">
+            {product.price} €
+          </span>
+        </div>
 
         <button
           onClick={buy}
-          className="bg-red-700 px-8 py-4 rounded-xl"
+          className="bg-red-700 hover:bg-red-600 px-10 py-5 rounded-2xl text-xl font-bold transition-all"
         >
-          Acheter
+          Acheter maintenant
         </button>
       </div>
     </div>
