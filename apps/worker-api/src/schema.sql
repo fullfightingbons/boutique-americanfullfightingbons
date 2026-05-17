@@ -1,11 +1,12 @@
 CREATE TABLE products (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT,
-  slug TEXT,
+  title TEXT NOT NULL,
+  slug TEXT UNIQUE,
   description TEXT,
   price REAL,
   image_url TEXT,
   stock INTEGER DEFAULT 0,
+  category TEXT,
   active INTEGER DEFAULT 1,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
