@@ -1,7 +1,4 @@
 import { useEffect, useState } from 'react'
-    price: '',
-    description: '',
-    image_url: ''
   })
 
   async function createProduct() {
