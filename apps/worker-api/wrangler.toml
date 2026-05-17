@@ -1,0 +1,13 @@
+name = "boutique-americanfullfightingbons"
+main = "src/index.ts"
+compatibility_date = "2026-05-17"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "affb-shop"
+database_id = "YOUR_DATABASE_ID"
+
+[vars]
+BREVO_API_KEY = ""
+HELLOASSO_TOKEN = ""
+HELLOASSO_ORG = ""
