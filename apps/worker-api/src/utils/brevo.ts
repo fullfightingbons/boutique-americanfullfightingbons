@@ -7,12 +7,17 @@ export async function sendOrderEmail(env: any, email: string) {
     },
     body: JSON.stringify({
       sender: {
-        name: 'AFFB',
+        name: 'AFFB SHOP',
         email: 'contact@americanfullfightingbons.fr'
       },
       to: [{ email }],
-      subject: 'Commande confirmée',
-      htmlContent: '<h1>Merci pour votre commande</h1>'
+      subject: 'Commande AFFB confirmée',
+      htmlContent: `
+        <div style="background:#000;padding:40px;color:white;font-family:Arial;">
+          <h1 style="color:#b91c1c;">Merci pour votre commande</h1>
+          <p>Votre paiement a été validé.</p>
+        </div>
+      `
     })
   })
 }
