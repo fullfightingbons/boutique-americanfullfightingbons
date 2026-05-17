@@ -6,8 +6,8 @@
 	"d1_databases": [
 		{
 			"binding": "DB",
-			"database_id": "6fa7c575-d9a2-4f6f-bf75-4401d98a2152",
-			"database_name": "d1-template-database"
+			"database_id": "7be72073-32e5-4a81-a8da-243a2687af36",
+			"database_name": "boutique-americanfullfightingbons"
 		}
 	],
 	"observability": {
