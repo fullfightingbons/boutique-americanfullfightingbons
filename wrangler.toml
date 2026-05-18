@@ -5,10 +5,34 @@ compatibility_flags = ["nodejs_compat"]
 
 # ── D1 Database ──────────────────────────────────────────────────
 [[d1_databases]]
-binding      = "DB"
+binding       = "DB"
 database_name = "boutique-americanfullfightingbons"
-database_id  = "7be72073-32e5-4a81-a8da-243a2687af36"
+database_id   = "7be72073-32e5-4a81-a8da-243a2687af36"
 
-# ── Variables d'environnement (à surcharger dans le dashboard) ───
+# ── R2 Bucket (images produits) ──────────────────────────────────
+# Créer d'abord : wrangler r2 bucket create affb-images
+[[r2_buckets]]
+binding     = "R2_BUCKET"
+bucket_name = "affb-images"
+
+# ── Variables d'environnement ────────────────────────────────────
+# IMPORTANT : ne jamais mettre les secrets ici en clair !
+# Les définir dans le dashboard Cloudflare ou via :
+#   wrangler secret put ADMIN_PASSWORD
+#   wrangler secret put HELLOASSO_CLIENT_SECRET
+#   wrangler secret put BREVO_API_KEY
+
 [vars]
-ENVIRONMENT = "production"
+ENVIRONMENT           = "production"
+
+# HelloAsso — à adapter à votre organisation
+HELLOASSO_ORG_SLUG    = "american-full-fighting-bons-en-chablais"
+HELLOASSO_RETURN_URL  = "https://boutique-americanfullfightingbons.workers.dev/?payment=success"
+HELLOASSO_ERROR_URL   = "https://boutique-americanfullfightingbons.workers.dev/?payment=error"
+
+# Brevo — à adapter
+BREVO_FROM_EMAIL      = "boutique@americanfullfightingbons.fr"
+BREVO_FROM_NAME       = "AFFB Boutique"
+
+# HelloAsso OAuth2 client_id (non secret, peut rester ici)
+# HELLOASSO_CLIENT_ID = "votre-client-id-ici"
