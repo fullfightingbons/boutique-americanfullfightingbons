@@ -209,9 +209,9 @@
   <header class="admin-header">
     <div class="admin-logo"><span>AFF</span>BONS <span style="font-size:12px;font-weight:400;color:var(--gray)">ADMIN</span></div>
     <nav class="admin-nav">
-      <button class="admin-nav-btn active" onclick="showTab('dashboard')">Dashboard</button>
-      <button class="admin-nav-btn" onclick="showTab('products')">Produits</button>
-      <button class="admin-nav-btn" onclick="showTab('orders')">Commandes</button>
+      <button class="admin-nav-btn active" onclick="showTab('dashboard', this)">Dashboard</button>
+      <button class="admin-nav-btn" onclick="showTab('products', this)">Produits</button>
+      <button class="admin-nav-btn" onclick="showTab('orders', this)">Commandes</button>
     </nav>
     <div style="display:flex;align-items:center;gap:12px">
       <a href="/" target="_blank" class="btn btn-dark btn-sm">↗ Boutique</a>
@@ -520,11 +520,11 @@ if (AUTH_TOKEN) {
 // ════════════════════════════════════════════════════════════════
 //  TABS
 // ════════════════════════════════════════════════════════════════
-function showTab(name) {
+function showTab(name, btn) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.admin-nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`tab-${name}`).classList.add('active');
-  event.currentTarget.classList.add('active');
+  if (btn) btn.classList.add('active');
 }
 
 // ════════════════════════════════════════════════════════════════
