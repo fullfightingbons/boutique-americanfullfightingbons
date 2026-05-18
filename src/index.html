@@ -570,10 +570,72 @@ function addToCart(productId, name, price, size, qty) {    size = size || null;
 } else {
       cartItems.push({ _key: key, product_id: productId, name: name, price: price, quantity: qty, size: size });
     }
-    cartCount.textContent = cartItems.reduce(function(s, i) { return s + i.quantity; }, 0);
-    const label = size ? name + ' — ' + size : name;
-    showToast('✓ ' + label + ' ajouté');
+    cartCount.textContent = cartItems.reduce(function(s, i) {
+  return s + i.quantity;
+}, 0);
+
+refreshCartDisplay();
+
+const label = size ? name + ' — ' + size : name;
+showToast('✓ ' + label + ' ajouté');
+  function updateCartQty(key, delta) {
+
+  if (!lines) return;
+
+  if (!cartItems.length) {
+    lines.innerHTML = '<div style="color:var(--gray)">Votre panier est vide</div>';
+    return;
   }
+
+  const total = cartItems.reduce(function(sum, item) {
+    return sum + (item.price * item.quantity);
+  }, 0);
+
+  lines.innerHTML = cartItems.map(function(item) {
+    const label = item.name + (item.size ? ' — ' + item.size : '');
+
+    return `
+      <div style="border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:10px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;gap:10px">
+          <div>
+            <div style="color:var(--white);font-size:14px">${label}</div>
+            <div style="font-size:12px;color:var(--gray)">${item.price.toFixed(2)}€ / unité</div>
+          </div>
+
+          <button
+            onclick="removeCartItem('${item._key}')"
+            style="background:none;border:none;color:var(--red);cursor:pointer;font-size:18px"
+          >✕</button>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <button
+              onclick="updateCartQty('${item._key}', -1)"
+              style="width:28px;height:28px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);cursor:pointer"
+            >−</button>
+
+            <span style="min-width:20px;text-align:center;color:var(--white)">${item.quantity}</span>
+
+            <button
+              onclick="updateCartQty('${item._key}', 1)"
+              style="width:28px;height:28px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);cursor:pointer"
+            >+</button>
+          </div>
+
+          <div style="color:var(--white);font-weight:600">
+            ${(item.price * item.quantity).toFixed(2)}€
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('') +
+
+  `<div style="border-top:1px solid rgba(255,255,255,.1);margin-top:12px;padding-top:12px;color:var(--white);font-weight:700;display:flex;justify-content:space-between;font-size:16px">
+    <span>Total</span>
+    <span>${total.toFixed(2)}€</span>
+  </div>`;
+}
 
   // ── Cache produits (évite de passer du JSON dans les onclick) ─
   const productCache = {};
@@ -871,12 +933,9 @@ addToCart(p.id, p.name, p.price, selectedSize, qty);
     <script>
       document.getElementById('orderModal').addEventListener('click', function(e){ if(e.target===this) closeOrderModal(); });
       document.getElementById('cartBtn').addEventListener('click', function(){
-        if(!cartItems.length) return;
-        const lines = document.getElementById('modalCartLines');
-        const total = cartItems.reduce((s,i)=>s+i.price*i.quantity,0);
-        lines.innerHTML = cartItems.map(function(i){ const label = i.name + (i.size ? ' — ' + i.size : '') + ' ×' + i.quantity; return '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>' + label + '</span><span style="color:var(--white)">' + (i.price*i.quantity).toFixed(2) + '€</span></div>'; }).join('')
-          + `<div style="border-top:1px solid rgba(255,255,255,.1);margin-top:8px;padding-top:8px;color:var(--white);font-weight:600;display:flex;justify-content:space-between"><span>Total</span><span>${total.toFixed(2)}€</span></div>`;
-      });
+  if(!cartItems.length) return;
+  refreshCartDisplay();
+});
     </script>
   </div>
 </div>
