@@ -562,15 +562,45 @@
     toastTimer = setTimeout(() => toast.classList.remove('show'), duration);
   }
 
-function addToCart(productId, name, price, size, qty) {    size = size || null;
-    const key = size ? productId + '__' + size : String(productId);
-    const existing = cartItems.find(function(i) { return i._key === key; });
-    if (existing) {
+function addToCart(productId, name, price, size, qty) {
+
+  size = size || null;
+  qty = qty || 1;
+
+  const key =
+    size ? productId + '__' + size : String(productId);
+
+  const existing = cartItems.find(function(i) {
+    return i._key === key;
+  });
+
+  if (existing) {
+
     existing.quantity += qty;
-} else {
-      cartItems.push({ _key: key, product_id: productId, name: name, price: price, quantity: qty, size: size });
-    }
-    artCount.textContent = cartItems.reduce(function(sum, item) {
+
+  } else {
+
+    cartItems.push({
+      _key: key,
+      product_id: productId,
+      name: name,
+      price: price,
+      quantity: qty,
+      size: size
+    });
+
+  }
+
+  refreshCartDisplay();
+
+  const label =
+    size ? name + ' — ' + size : name;
+
+  showToast('✓ ' + label + ' ajouté');
+}
+function refreshCartDisplay() {
+
+  cartCount.textContent = cartItems.reduce(function(sum, item) {
     return sum + item.quantity;
   }, 0);
 
@@ -579,7 +609,10 @@ function addToCart(productId, name, price, size, qty) {    size = size || null;
   if (!lines) return;
 
   if (!cartItems.length) {
-    lines.innerHTML = '<div style="color:var(--gray)">Votre panier est vide</div>';
+
+    lines.innerHTML =
+      '<div style="color:var(--gray)">Votre panier est vide</div>';
+
     return;
   }
 
@@ -663,6 +696,36 @@ function addToCart(productId, name, price, size, qty) {    size = size || null;
 
       </div>
     `;
+}
+function updateCartQty(key, delta) {
+
+  const item = cartItems.find(function(i) {
+    return i._key === key;
+  });
+
+  if (!item) return;
+
+  item.quantity += delta;
+
+  if (item.quantity <= 0) {
+    removeCartItem(key);
+    return;
+  }
+
+  refreshCartDisplay();
+}
+
+function removeCartItem(key) {
+
+  const index = cartItems.findIndex(function(i) {
+    return i._key === key;
+  });
+
+  if (index !== -1) {
+    cartItems.splice(index, 1);
+  }
+
+  refreshCartDisplay();
 }
 
   // ── Cache produits (évite de passer du JSON dans les onclick) ─
