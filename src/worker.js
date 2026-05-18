@@ -61,6 +61,9 @@ const routes = [
 
   // ── Brevo invoice ─────────────────────────────────────────────
   route('POST',  '/api/admin/invoice/:orderId', sendInvoice,   true),
+
+  // ── Images produits (servies depuis R2) ───────────────────────
+  route('GET',   '/images/:key',               serveImage),
 ];
 
 export default {
@@ -69,6 +72,16 @@ export default {
     const { pathname } = url;
 
     if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }));
+
+    // Route spéciale : images R2 (clé avec sous-chemin ex: products/1-xxx.jpg)
+    if (request.method === 'GET' && pathname.startsWith('/images/')) {
+      try {
+        const res = await serveImage(request, env, {}, url);
+        return cors(res);
+      } catch (err) {
+        return cors(new Response('Erreur image', { status: 500 }));
+      }
+    }
 
     for (const r of routes) {
       const params = matchRoute(r.pathname, pathname);
@@ -274,8 +287,9 @@ async function uploadImage(request, env, params) {
     // Si binding R2 disponible
     if (env.R2_BUCKET) {
       await env.R2_BUCKET.put(key, buffer, { httpMetadata: { contentType: file.type } });
-      const imageUrl = `https://r2.affb-boutique.fr/${key}`; // adapter selon votre domaine R2
-      await env.DB.prepare('UPDATE products SET image_url = ?, updated_at = datetime(\'now\') WHERE id = ?')
+      // URL interne servie par la route GET /images/:key
+      const imageUrl = `/images/${key}`;
+      await env.DB.prepare("UPDATE products SET image_url = ?, updated_at = datetime('now') WHERE id = ?")
         .bind(imageUrl, params.id).run();
       return json({ success: true, image_url: imageUrl });
     }
@@ -668,6 +682,22 @@ function buildEmailHtml(order, items) {
   </div>
 </body>
 </html>`;
+}
+
+// GET /images/:key — sert une image depuis R2
+// La clé peut contenir un slash (ex: products/1-123456.jpg)
+// On bypass le router pour cette route dans le fetch handler
+async function serveImage(request, env, _params, url) {
+  if (!env.R2_BUCKET) return new Response('R2 non configuré', { status: 503 });
+  // Extraire la clé complète depuis le pathname (tout après /images/)
+  const key = url.pathname.replace(/^\/images\//, '');
+  if (!key) return new Response('Clé manquante', { status: 400 });
+  const object = await env.R2_BUCKET.get(key);
+  if (!object) return new Response('Image introuvable', { status: 404 });
+  const headers = new Headers();
+  headers.set('Content-Type', object.httpMetadata?.contentType || 'image/jpeg');
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  return new Response(object.body, { headers });
 }
 
 function statusLabel(status) {
