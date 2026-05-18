@@ -208,29 +208,34 @@ async function getAdminProducts(_req, env) {
 }
 
 // POST /api/admin/products
-// Body: { name, category, price, price_old?, emoji, badge?, stock, description? }
+// Body: { name, category, price, price_old?, emoji, badge?, stock, description?, sizes? }
 async function createProduct(request, env) {
   const body = await request.json();
-  const { name, category, price, price_old, emoji, badge, stock, description } = body;
+  const { name, category, price, price_old, emoji, badge, stock, description, sizes } = body;
   if (!name || !category || price == null || stock == null) {
     return json({ error: 'Champs obligatoires : name, category, price, stock' }, 400);
   }
+  const sizesJson = sizes && sizes.length ? JSON.stringify(sizes) : null;
   const result = await env.DB.prepare(
-    `INSERT INTO products (name, category, price, price_old, emoji, badge, stock, description)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(name, category, price, price_old ?? null, emoji ?? '📦', badge ?? null, stock, description ?? null).run();
+    `INSERT INTO products (name, category, price, price_old, emoji, badge, stock, description, sizes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(name, category, price, price_old ?? null, emoji ?? '📦', badge ?? null, stock, description ?? null, sizesJson).run();
   return json({ success: true, id: result.meta.last_row_id }, 201);
 }
 
 // PATCH /api/admin/products/:id
-// Body: { name?, category?, price?, price_old?, emoji?, badge?, stock?, description? }
+// Body: { name?, category?, price?, price_old?, emoji?, badge?, stock?, description?, sizes? }
 async function updateProduct(request, env, params) {
   const body = await request.json();
-  const fields = ['name', 'category', 'price', 'price_old', 'emoji', 'badge', 'stock', 'description'];
+  const fields = ['name', 'category', 'price', 'price_old', 'emoji', 'badge', 'stock', 'description', 'sizes'];
   const sets = [];
   const values = [];
   for (const f of fields) {
-    if (f in body) { sets.push(`${f} = ?`); values.push(body[f]); }
+    if (f in body) {
+      sets.push(`${f} = ?`);
+      const val = f === 'sizes' ? (body[f] && body[f].length ? JSON.stringify(body[f]) : null) : body[f];
+      values.push(val);
+    }
   }
   if (!sets.length) return json({ error: 'Aucun champ à mettre à jour' }, 400);
   sets.push("updated_at = datetime('now')");
@@ -276,7 +281,13 @@ async function uploadImage(request, env, params) {
     }
 
     // Fallback : base64 (ok pour petites images <500KB)
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+    const uint8 = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < uint8.length; i += chunkSize) {
+      binary += String.fromCharCode(...uint8.subarray(i, i + chunkSize));
+    }
+    const b64 = btoa(binary);
     const dataUrl = `data:${file.type};base64,${b64}`;
     await env.DB.prepare('UPDATE products SET image_url = ?, updated_at = datetime(\'now\') WHERE id = ?')
       .bind(dataUrl, params.id).run();

@@ -252,7 +252,7 @@
           </div>
           <div class="form-group">
             <label>Catégorie *</label>
-            <select id="pCategory" class="form-control">
+            <select id="pCategory" class="form-control" onchange="onCategoryChange()">
               <option value="gants">Gants</option>
               <option value="protections">Protections</option>
               <option value="tenues">Tenues</option>
@@ -271,9 +271,35 @@
             <label>Stock *</label>
             <input id="pStock" type="number" min="0" class="form-control" placeholder="10"/>
           </div>
-          <div class="form-group">
-            <label>Emoji</label>
-            <input id="pEmoji" type="text" class="form-control" placeholder="🥊" maxlength="4"/>
+          <div class="form-group" id="sizesGroup" style="display:none">
+            <label>Tailles disponibles</label>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px" id="sizesCheckboxes">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="XS" class="size-cb"/> XS</label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="S" class="size-cb"/> S</label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="M" class="size-cb"/> M</label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="L" class="size-cb"/> L</label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="XL" class="size-cb"/> XL</label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="XXL" class="size-cb"/> XXL</label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="XXXL" class="size-cb"/> XXXL</label>
+            </div>
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label>Image du produit</label>
+            <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+              <div id="formImgDropZone" class="img-upload-zone" style="flex:1;min-width:200px;padding:1.25rem"
+                   onclick="document.getElementById('formImgFile').click()"
+                   ondragover="event.preventDefault();this.classList.add('drag')"
+                   ondragleave="this.classList.remove('drag')"
+                   ondrop="handleFormImgDrop(event)">
+                <div>📂 Cliquez ou glissez une image ici</div>
+                <div style="font-size:11px;margin-top:4px">JPG, PNG — max ~500KB</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
+                <img id="formImgPreview" style="width:80px;height:80px;object-fit:cover;display:none;border:1px solid rgba(255,255,255,.12)"/>
+                <button type="button" id="formImgClearBtn" class="btn btn-danger btn-sm" style="display:none;font-size:11px" onclick="clearFormImg()">✕ Supprimer</button>
+              </div>
+            </div>
+            <input type="file" id="formImgFile" accept="image/jpeg,image/png" style="display:none" onchange="handleFormImgSelect(this)"/>
           </div>
           <div class="form-group">
             <label>Badge</label>
@@ -302,9 +328,9 @@
       <div class="table-wrap">
         <table id="productTable">
           <thead><tr>
-            <th>Visual</th><th>Nom</th><th>Catégorie</th><th>Prix</th><th>Stock</th><th>Badge</th><th>Actions</th>
+            <th>Visual</th><th>Nom</th><th>Catégorie</th><th>Prix</th><th>Stock</th><th>Badge</th><th>Tailles</th><th>Actions</th>
           </tr></thead>
-          <tbody id="productTableBody"><tr><td colspan="7" class="loader">Chargement…</td></tr></tbody>
+          <tbody id="productTableBody"><tr><td colspan="8" class="loader">Chargement…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -555,7 +581,7 @@ async function loadProductsTable() {
     return;
   }
   if (!Array.isArray(data)) {
-    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);padding:1rem">Réponse inattendue : ${JSON.stringify(data).slice(0,120)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--red);padding:1rem">Réponse inattendue : ${JSON.stringify(data).slice(0,120)}</td></tr>`;
     return;
   }
   allProducts = data;
@@ -565,7 +591,7 @@ async function loadProductsTable() {
 function renderProductsTable(products) {
   const tbody = document.getElementById('productTableBody');
   if (!Array.isArray(products) || products.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="loader">Aucun produit</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="loader">Aucun produit</td></tr>';
     return;
   }
   tbody.innerHTML = products.map(p => `
@@ -585,10 +611,10 @@ function renderProductsTable(products) {
       </td>
       <td>${p.stock <= 3 ? `<span class="low-stock-warn">⚠ ${p.stock}</span>` : p.stock}</td>
       <td>${p.badge ? `<span class="badge ${p.badge==='Nouveau'?'badge-confirmed':'badge-shipped'}">${p.badge}</span>` : '–'}</td>
+      <td style="font-size:12px;color:var(--gray)">${(() => { try { const s=JSON.parse(p.sizes||'[]'); return s.length ? s.join(', ') : '–'; } catch(e){return '–';} })()}</td>
       <td>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn btn-dark btn-sm" onclick="editProduct(${p.id})">✏ Modifier</button>
-          <button class="btn btn-dark btn-sm" onclick="openImgModal(${p.id})">📷 Image</button>
           <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id}, '${(p.name||'').replace(/'/g,"\\'")}')">🗑</button>
         </div>
       </td>
@@ -605,14 +631,58 @@ function filterProductTable() {
 
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
+let formImgFile = null;
+
 function resetProductForm() {
   document.getElementById('editProductId').value = '';
   document.getElementById('productFormTitle').textContent = '+ Nouveau produit';
-  ['pName','pDesc','pPriceOld','pEmoji'].forEach(id => document.getElementById(id).value = '');
+  ['pName','pDesc','pPriceOld'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('pPrice').value = '';
   document.getElementById('pStock').value = '';
   document.getElementById('pCategory').value = 'gants';
   document.getElementById('pBadge').value = '';
+  clearFormImg();
+  document.querySelectorAll('.size-cb').forEach(cb => cb.checked = false);
+  onCategoryChange();
+}
+
+function onCategoryChange() {
+  const cat = document.getElementById('pCategory').value;
+  const sizesGroup = document.getElementById('sizesGroup');
+  sizesGroup.style.display = (cat === 'tenues') ? 'block' : 'none';
+}
+
+function handleFormImgDrop(e) {
+  e.preventDefault();
+  document.getElementById('formImgDropZone').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) applyFormImg(file);
+}
+
+function handleFormImgSelect(input) {
+  if (input.files[0]) applyFormImg(input.files[0]);
+}
+
+function applyFormImg(file) {
+  if (!file.type.match(/image\/(jpeg|png)/)) { showToast('Seuls JPG et PNG sont acceptés', 'error'); return; }
+  formImgFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = document.getElementById('formImgPreview');
+    img.src = e.target.result;
+    img.style.display = 'block';
+    document.getElementById('formImgClearBtn').style.display = 'inline-flex';
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearFormImg() {
+  formImgFile = null;
+  const img = document.getElementById('formImgPreview');
+  img.src = '';
+  img.style.display = 'none';
+  document.getElementById('formImgClearBtn').style.display = 'none';
+  document.getElementById('formImgFile').value = '';
 }
 
 function editProduct(id) {
@@ -625,9 +695,20 @@ function editProduct(id) {
   document.getElementById('pPrice').value     = p.price;
   document.getElementById('pPriceOld').value  = p.price_old || '';
   document.getElementById('pStock').value     = p.stock;
-  document.getElementById('pEmoji').value     = p.emoji || '';
   document.getElementById('pBadge').value     = p.badge || '';
   document.getElementById('pDesc').value      = p.description || '';
+  clearFormImg();
+  // Tailles
+  const savedSizes = (() => { try { return JSON.parse(p.sizes || '[]'); } catch(e) { return []; } })();
+  document.querySelectorAll('.size-cb').forEach(cb => { cb.checked = savedSizes.includes(cb.value); });
+  onCategoryChange();
+  // Image existante
+  if (p.image_url) {
+    const img = document.getElementById('formImgPreview');
+    img.src = p.image_url;
+    img.style.display = 'block';
+    document.getElementById('formImgClearBtn').style.display = 'inline-flex';
+  }
   // Scroll vers le formulaire
   document.getElementById('tab-products').scrollIntoView({ behavior: 'smooth' });
   // Activer l'onglet produits si besoin
@@ -638,15 +719,17 @@ function editProduct(id) {
 
 async function saveProduct() {
   const id = document.getElementById('editProductId').value;
+  const selectedSizes = [...document.querySelectorAll('.size-cb:checked')].map(cb => cb.value);
   const payload = {
     name:        document.getElementById('pName').value.trim(),
     category:    document.getElementById('pCategory').value,
     price:       parseFloat(document.getElementById('pPrice').value),
     price_old:   parseFloat(document.getElementById('pPriceOld').value) || null,
     stock:       parseInt(document.getElementById('pStock').value, 10),
-    emoji:       document.getElementById('pEmoji').value.trim() || '📦',
+    emoji:       '📦',
     badge:       document.getElementById('pBadge').value || null,
     description: document.getElementById('pDesc').value.trim() || null,
+    sizes:       selectedSizes,
   };
 
   if (!payload.name || isNaN(payload.price) || isNaN(payload.stock)) {
@@ -658,14 +741,24 @@ async function saveProduct() {
     ? await api('PATCH', `/api/admin/products/${id}`, payload)
     : await api('POST',  '/api/admin/products', payload);
 
-  if (ok) {
-    showToast(id ? '✓ Produit mis à jour' : '✓ Produit créé', 'success');
-    resetProductForm();
-    loadProductsTable();
-    loadDashboard();
-  } else {
+  if (!ok) {
     showToast('Erreur : ' + (data.error || 'inconnue'), 'error');
+    return;
   }
+
+  // Upload image si un fichier est sélectionné
+  const productId = id || data.id;
+  if (formImgFile && productId) {
+    const fd = new FormData();
+    fd.append('image', formImgFile);
+    const imgRes = await apiForm(`/api/admin/products/${productId}/image`, fd);
+    if (!imgRes.ok) showToast('Produit sauvegardé mais erreur image : ' + (imgRes.data.error || '?'), 'error');
+  }
+
+  showToast(id ? '✓ Produit mis à jour' : '✓ Produit créé', 'success');
+  resetProductForm();
+  loadProductsTable();
+  loadDashboard();
 }
 
 async function deleteProduct(id, name) {
