@@ -478,7 +478,7 @@
     <div class="featured-name">GANTS<br/><span>PRO AFFB</span></div>
     <p class="featured-desc">Fabriqués en cuir synthèse haute densité, ces gants sont conçus pour l'entraînement intensif comme pour la compétition. Disponibles de 10 à 16 oz.</p>
     <div class="featured-price">59€ <span style="font-size:18px;color:var(--gray);text-decoration:line-through">74€</span></div>
-    <button class="btn-primary" onclick="addToCart('Gants Pro AFFB')">Ajouter au panier &#8594;</button>
+    <button class="btn-primary" onclick="filterProducts('gants', null); document.getElementById('produits').scrollIntoView({behavior:'smooth'})">Voir les gants &#8594;</button>
   </div>
 </section>
 
@@ -554,6 +554,14 @@
     showToast('✓ ' + label + ' ajouté');
   }
 
+  // ── Cache produits (évite de passer du JSON dans les onclick) ─
+  const productCache = {};
+
+  function openProductById(id) {
+    const p = productCache[id];
+    if (p) openProductModal(p);
+  }
+
   // ── Modal produit ─────────────────────────────────────────────
   function openProductModal(pJson) {
     const p = typeof pJson === 'string' ? JSON.parse(pJson) : pJson;
@@ -562,7 +570,7 @@
 
     const imgEl = document.getElementById('productModalImg');
     if (p.image_url) {
-      imgEl.innerHTML = '<img src="' + p.image_url + '" alt="' + p.name + '" onerror="this.style.display='none'"/>';
+      imgEl.innerHTML = '<img src="' + p.image_url + '" alt="' + (p.name||'').replace(/"/g,'&quot;') + '" onerror="this.style.display=\'none\'"/>';
     } else {
       imgEl.innerHTML = '<div class="product-emoji">' + (p.emoji || '📦') + '</div>';
     }
@@ -680,16 +688,18 @@
       grid.innerHTML = '<p style="color:var(--gray);padding:2rem">Aucun produit dans cette catégorie.</p>';
       return;
     }
+    // Mettre en cache tous les produits reçus
+    products.forEach(function(p) { productCache[p.id] = p; });
     grid.innerHTML = products.map(function(p) {
       let sizes = [];
       try { sizes = JSON.parse(p.sizes || '[]'); } catch(e) {}
       const hasSizes = sizes.length > 0;
       const btnLabel = hasSizes ? 'Choisir une taille →' : '+ Ajouter au panier';
-      const pJson = JSON.stringify(p).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
-      return '<div class="product-card" data-cat="' + p.category + '" onclick="openProductModal('' + pJson + '')">' +
+      const pId = p.id;
+      return '<div class="product-card" data-cat="' + p.category + '" onclick="openProductById(' + pId + ')">' +
         '<div class="product-img">' +
         (p.image_url
-          ? '<img src="' + p.image_url + '" alt="' + p.name + '" onerror="this.style.display='none';this.insertAdjacentHTML('afterend','<div class=\\'product-emoji\\'>' + (p.emoji||'📦') + '</div>')"/>'
+          ? '<img src="' + p.image_url + '" alt="' + p.name.replace(/"/g,'&quot;') + '" onerror="this.style.display=\'none\'"/>'
           : '<div class="product-emoji">' + (p.emoji||'📦') + '</div>') +
         (p.badge ? '<span class="product-badge' + (p.badge==='Nouveau'?' new':'') + '">' + p.badge + '</span>' : '') +
         (hasSizes ? '<span style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.7);color:var(--gray);font-size:10px;padding:3px 7px;font-family:var(--font-display);font-weight:600;letter-spacing:.06em">' + sizes.join(' · ') + '</span>' : '') +
@@ -701,7 +711,7 @@
         (p.price_old ? '<span class="product-price-old">' + p.price_old + '€</span>' : '') + '</div>' +
         (!hasSizes && p.stock <= 3 ? '<div style="font-size:11px;color:var(--red);margin-top:4px">Plus que ' + p.stock + ' en stock</div>' : '') +
         '</div>' +
-        '<button class="product-add" onclick="event.stopPropagation();openProductModal('' + pJson + '')">' + btnLabel + '</button>' +
+        '<button class="product-add" onclick="event.stopPropagation();openProductById(' + pId + ')">' + btnLabel + '</button>' +
         '</div>';
     }).join('');
   }
