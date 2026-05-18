@@ -45,6 +45,12 @@
     display: flex; align-items: center; gap: 10px;
   }
   .nav-logo span { color: var(--red); }
+  .nav-logo-img {
+    height: 44px;
+    width: auto;
+    filter: invert(1) brightness(2);
+    display: block;
+  }
   .nav-links { display: flex; gap: 2rem; list-style: none; }
   .nav-links a { color: var(--gray); text-decoration: none; font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; transition: color .2s; }
   .nav-links a:hover { color: var(--white); }
@@ -372,14 +378,13 @@
 <!-- NAV -->
 <nav>
   <div class="nav-logo">
-    <span>AFF</span>BONS
+    <img src="Logo_1_nnoir_copie.jpg" alt="Full Fighting Bons en Chablais" class="nav-logo-img"/>
     <span style="width:6px;height:6px;background:var(--red);border-radius:50%;display:inline-block;"></span>
     <span style="font-size:13px;font-weight:400;color:var(--gray);letter-spacing:0.1em">BOUTIQUE</span>
   </div>
   <ul class="nav-links">
     <li><a href="#produits">Produits</a></li>
     <li><a href="#categories">Catégories</a></li>
-    <li><a href="#featured">Nouveautés</a></li>
     <li><a href="https://www.americanfullfightingbons.fr" target="_blank">Le Club</a></li>
   </ul>
   <button class="nav-cart" id="cartBtn">
@@ -403,32 +408,11 @@
       <a href="#produits" class="btn-primary">Voir les produits &#8594;</a>
       <a href="https://www.americanfullfightingbons.fr" target="_blank" class="btn-outline">Le club</a>
     </div>
-    <div class="hero-stats">
-      <div>
-        <div class="hero-stat-n">10×</div>
-        <div class="hero-stat-l">Champions du monde parrains</div>
-      </div>
-      <div>
-        <div class="hero-stat-n">2024</div>
-        <div class="hero-stat-l">Fondation du club</div>
-      </div>
-      <div>
-        <div class="hero-stat-n">3×</div>
-        <div class="hero-stat-l">Entraînements / semaine</div>
-      </div>
-    </div>
+
   </div>
 </section>
 
 <!-- BANDE CHAMPIONS -->
-<div class="champ-band">
-  <div>
-    <div class="champ-text">Parrainés par des champions du monde</div>
-    <div class="champ-names">Franck Judès · Christian Battesti · Lionel Picord · Priscat Vicot</div>
-  </div>
-  <a href="https://www.americanfullfightingbons.fr" target="_blank" class="btn-outline" style="border-color:rgba(255,255,255,0.4);">Découvrir →</a>
-</div>
-
 <!-- CATÉGORIES -->
 <section class="categories" id="categories">
   <div class="section-label">Explorer</div>
@@ -439,7 +423,7 @@
       <div class="cat-icon-wrap">🥊</div>
       <div class="cat-info">
         <div class="cat-name">Gants</div>
-        <div class="cat-count">4 articles</div>
+        <div class="cat-count" id="count-gants">0 article</div>
       </div>
       <div class="cat-hover-line"></div>
     </div>
@@ -448,7 +432,7 @@
       <div class="cat-icon-wrap">👕</div>
       <div class="cat-info">
         <div class="cat-name">Tenues</div>
-        <div class="cat-count">6 articles</div>
+        <div class="cat-count" id="count-tenues">0 article</div>
       </div>
       <div class="cat-hover-line"></div>
     </div>
@@ -457,7 +441,7 @@
       <div class="cat-icon-wrap">🛡️</div>
       <div class="cat-info">
         <div class="cat-name">Protections</div>
-        <div class="cat-count">5 articles</div>
+        <div class="cat-count" id="count-protections">0 article</div>
       </div>
       <div class="cat-hover-line"></div>
     </div>
@@ -466,7 +450,7 @@
       <div class="cat-icon-wrap">🎽</div>
       <div class="cat-info">
         <div class="cat-name">Accessoires</div>
-        <div class="cat-count">8 articles</div>
+        <div class="cat-count" id="count-accessoires">0 article</div>
       </div>
       <div class="cat-hover-line"></div>
     </div>
@@ -493,22 +477,11 @@
 </section>
 
 <!-- FEATURED -->
-<section class="featured" id="featured">
-  <div class="featured-visual">🥊</div>
-  <div class="featured-info">
-    <div class="section-label">Produit vedette</div>
-    <div class="featured-name">GANTS<br/><span>PRO AFFB</span></div>
-    <p class="featured-desc">Fabriqués en cuir synthèse haute densité, ces gants sont conçus pour l'entraînement intensif comme pour la compétition. Disponibles de 10 à 16 oz.</p>
-    <div class="featured-price">59€ <span style="font-size:18px;color:var(--gray);text-decoration:line-through">74€</span></div>
-    <button class="btn-primary" onclick="filterProducts('gants', null); document.getElementById('produits').scrollIntoView({behavior:'smooth'})">Voir les gants &#8594;</button>
-  </div>
-</section>
-
 <!-- FOOTER -->
 <footer>
   <div class="footer-grid">
     <div>
-      <div class="footer-logo"><span>AFF</span>BONS</div>
+      <div class="footer-logo"><img src="Logo_1_nnoir_copie.jpg" alt="Full Fighting Bons en Chablais" style="height:60px;width:auto;filter:invert(1) brightness(2);display:block;"/></div>
       <p class="footer-desc">Boutique officielle du club American Full Fighting Bons-en-Chablais. Équipements sélectionnés par nos coaches.</p>
     </div>
     <div>
@@ -516,7 +489,6 @@
       <ul class="footer-links">
         <li><a href="#produits">Tous les produits</a></li>
         <li><a href="#categories">Catégories</a></li>
-        <li><a href="#featured">Nouveautés</a></li>
       </ul>
     </div>
     <div>
@@ -697,6 +669,35 @@ function refreshCartDisplay() {
       </div>
     `;
 }
+
+function updateCategoryCounts(products) {
+
+  const counts = {
+    gants: 0,
+    tenues: 0,
+    protections: 0,
+    accessoires: 0
+  };
+
+  products.forEach(product => {
+    if (counts[product.category] !== undefined) {
+      counts[product.category]++;
+    }
+  });
+
+  Object.keys(counts).forEach(category => {
+
+    const el = document.getElementById(`count-${category}`);
+
+    if (!el) return;
+
+    const n = counts[category];
+
+    el.textContent =
+      n + (n > 1 ? ' articles' : ' article');
+  });
+}
+
 function updateCartQty(key, delta) {
 
   const item = cartItems.find(function(i) {
@@ -727,6 +728,7 @@ function removeCartItem(key) {
 
   refreshCartDisplay();
 }
+
 
   // ── Cache produits (évite de passer du JSON dans les onclick) ─
   const productCache = {};
@@ -902,6 +904,7 @@ addToCart(p.id, p.name, p.price, selectedSize, qty);
         '<button class="product-add" onclick="event.stopPropagation();openProductById(' + pId + ')">' + btnLabel + '</button>' +
         '</div>';
     }).join('');
+      updateCategoryCounts(products);
   }
 
  function capitalize(s) {
