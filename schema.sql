@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS products (
   stock       INTEGER NOT NULL DEFAULT 0,
   description TEXT,
   image_url   TEXT,                          -- URL R2 ou base64 data-URL
+  sizes       TEXT,                          -- JSON array ex: ["S","M","L","XL"]
   created_at  TEXT    DEFAULT (datetime('now')),
   updated_at  TEXT    DEFAULT (datetime('now'))
 );
