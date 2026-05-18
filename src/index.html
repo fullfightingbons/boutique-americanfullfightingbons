@@ -601,7 +601,7 @@
         const oos = qty <= 0;
         const low = qty > 0 && qty <= 3;
         return '<button class="size-btn' + (oos ? ' out-of-stock' : '') + '" data-size="' + s + '" data-stock="' + qty + '"' +
-          ' onclick="selectSize(this, '' + s + '', ' + qty + ')">' + s +
+          ' onclick="selectSize(this, \'' + s + '\', ' + qty + ')">' + s +
           '<span class="size-stock-badge' + (low ? ' low' : '') + '">' + (oos ? '✕' : qty) + '</span></button>';
       }).join('');
       stockInfo.textContent = 'Sélectionnez une taille';
