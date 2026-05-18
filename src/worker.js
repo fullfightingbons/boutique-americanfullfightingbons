@@ -199,12 +199,12 @@ async function getProduct(_req, env, params) {
 
 // ── Produits admin ───────────────────────────────────────────────
 
-// GET /api/admin/products — tous les produits (y compris stock = 0)
+// GET /api/admin/products — tous les produits y compris stock = 0
 async function getAdminProducts(_req, env) {
   const { results } = await env.DB.prepare(
     'SELECT * FROM products ORDER BY id'
   ).all();
-  return json(results);
+  return json(Array.isArray(results) ? results : []);
 }
 
 // POST /api/admin/products
