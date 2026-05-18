@@ -42,6 +42,7 @@ const routes = [
   route('GET',   '/api/products/:id',        getProduct),
 
   // ── Produits admin ────────────────────────────────────────────
+  route('GET',   '/api/admin/products',      getAdminProducts, true),
   route('POST',  '/api/admin/products',      createProduct,    true),
   route('PATCH', '/api/admin/products/:id',  updateProduct,    true),
   route('DELETE','/api/admin/products/:id',  deleteProduct,    true),
@@ -197,6 +198,14 @@ async function getProduct(_req, env, params) {
 }
 
 // ── Produits admin ───────────────────────────────────────────────
+
+// GET /api/admin/products — tous les produits (y compris stock = 0)
+async function getAdminProducts(_req, env) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM products ORDER BY id'
+  ).all();
+  return json(results);
+}
 
 // POST /api/admin/products
 // Body: { name, category, price, price_old?, emoji, badge?, stock, description? }

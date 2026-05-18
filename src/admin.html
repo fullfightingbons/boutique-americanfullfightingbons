@@ -538,16 +538,11 @@ async function loadDashboard() {
 //  PRODUITS
 // ════════════════════════════════════════════════════════════════
 async function loadProductsTable() {
-  const { ok, data } = await api('GET', '/api/products');
-  if (!ok) { document.getElementById('productTableBody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">Erreur</td></tr>'; return; }
-
-  // Inclure les hors-stock pour l'admin
-  const { data: allData } = await api('GET', '/api/admin/stats');
-  // On recharge tous les produits (y compris stock=0) via une route admin
-  // Pour l'instant on utilise /api/products qui filtre stock>0 — ajout d'une route admin ci-dessous
-  // si besoin. En attendant on affiche ce qu'on a.
-  renderProductsTable(data);
-  allProducts = data;
+  const { ok, data } = await api('GET', '/api/admin/products');
+  if (!ok) { document.getElementById('productTableBody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">Erreur de chargement</td></tr>'; return; }
+  const products = Array.isArray(data) ? data : [];
+  renderProductsTable(products);
+  allProducts = products;
 }
 
 function renderProductsTable(products) {
