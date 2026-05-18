@@ -562,14 +562,13 @@
     toastTimer = setTimeout(() => toast.classList.remove('show'), duration);
   }
 
-  function addToCart(productId, name, price, size) {
-    size = size || null;
+function addToCart(productId, name, price, size, qty) {    size = size || null;
     const key = size ? productId + '__' + size : String(productId);
     const existing = cartItems.find(function(i) { return i._key === key; });
     if (existing) {
-      existing.quantity++;
-    } else {
-      cartItems.push({ _key: key, product_id: productId, name: name, price: price, quantity: 1, size: size });
+    existing.quantity += qty;
+} else {
+      cartItems.push({ _key: key, product_id: productId, name: name, price: price, quantity: qty, size: size });
     }
     cartCount.textContent = cartItems.reduce(function(s, i) { return s + i.quantity; }, 0);
     const label = size ? name + ' — ' + size : name;
@@ -589,6 +588,7 @@
     const p = typeof pJson === 'string' ? JSON.parse(pJson) : pJson;
     currentModalProduct = p;
     selectedSize = null;
+    document.getElementById('productQty').value = 1;
 
     const imgEl = document.getElementById('productModalImg');
     if (p.image_url) {
@@ -680,6 +680,13 @@
     currentModalProduct = null;
     selectedSize = null;
   }
+  function changeQty(delta) {
+  const input = document.getElementById('productQty');
+  let value = parseInt(input.value || '1', 10);
+  value += delta;
+  if (value < 1) value = 1;
+  input.value = value;
+}
 
   function addFromModal() {
     if (!currentModalProduct) return;
@@ -690,7 +697,8 @@
       showToast('⚠ Choisissez une taille', 2000);
       return;
     }
-    addToCart(p.id, p.name, p.price, selectedSize);
+    const qty = parseInt(document.getElementById('productQty').value || '1', 10);
+addToCart(p.id, p.name, p.price, selectedSize, qty);
     closeProductModal();
   }
 
@@ -827,6 +835,20 @@
         <div class="size-grid" id="productModalSizes"></div>
       </div>
       <div class="stock-info" id="productModalStock"></div>
+      <div style="margin-top:1rem">
+  <div class="size-selector-label">Quantité</div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <button type="button" onclick="changeQty(-1)" style="width:40px;height:40px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);font-size:20px;cursor:pointer">−</button>
+    <input
+      id="productQty"
+      type="number"
+      min="1"
+      value="1"
+      style="width:70px;height:40px;text-align:center;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);font-size:16px"
+    />
+    <button type="button" onclick="changeQty(1)" style="width:40px;height:40px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);font-size:20px;cursor:pointer">+</button>
+  </div>
+</div>
       <button class="modal-add-btn" id="productModalAddBtn" onclick="addFromModal()">+ Ajouter au panier</button>
     </div>
   </div>
