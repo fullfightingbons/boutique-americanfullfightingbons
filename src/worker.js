@@ -283,9 +283,9 @@ async function uploadImage(request, env, params) {
     return json({ success: true, image_url: dataUrl });
   }
 
-  // ── Cas 2 : JSON avec URL externe
-  const { image_url } = await request.json();
-  if (!image_url) return json({ error: 'image_url manquante' }, 400);
+  // ── Cas 2 : JSON avec URL externe (ou null pour supprimer)
+  const body = await request.json();
+  const image_url = body.image_url ?? null;
   await env.DB.prepare("UPDATE products SET image_url = ?, updated_at = datetime('now') WHERE id = ?")
     .bind(image_url, params.id).run();
   return json({ success: true, image_url });
