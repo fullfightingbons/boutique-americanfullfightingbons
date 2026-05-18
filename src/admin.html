@@ -548,16 +548,17 @@ async function loadDashboard() {
 // ════════════════════════════════════════════════════════════════
 async function loadProductsTable() {
   const { ok, data } = await api('GET', '/api/admin/products');
-  if (!ok) { document.getElementById('productTableBody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">Erreur de chargement</td></tr>'; return; }
-  const products = Array.isArray(data) ? data : [];
+  if (!ok) { document.getElementById('productTableBody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">Erreur de chargement (' + (data && data.error ? data.error : 'status non-ok') + ')</td></tr>'; return; }
+  if (!Array.isArray(data)) { document.getElementById('productTableBody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">Réponse inattendue : ' + JSON.stringify(data).slice(0,100) + '</td></tr>'; return; }
+  const products = data.filter(p => p && p.name);
   renderProductsTable(products);
   allProducts = products;
 }
 
 function renderProductsTable(products) {
   const tbody = document.getElementById('productTableBody');
-  if (!products.length) { tbody.innerHTML = '<tr><td colspan="7" class="loader">Aucun produit</td></tr>'; return; }
-  tbody.innerHTML = products.map(p => `
+  if (!Array.isArray(products) || !products.length) { tbody.innerHTML = '<tr><td colspan="7" class="loader">Aucun produit</td></tr>'; return; }
+  tbody.innerHTML = products.filter(p => p && p.name).map(p => `
     <tr data-id="${p.id}" data-name="${p.name.toLowerCase()}" data-cat="${p.category}">
       <td>
         <div class="product-thumb" id="thumb-${p.id}">
