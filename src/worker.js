@@ -255,7 +255,7 @@ async function createProduct(request, env) {
 }
 
 // PATCH /api/admin/products/:id
-// Body: { name?, category?, price?, price_old?, emoji?, badge?, stock?, description?, sizes? }
+// Body: { name?, category?, price?, price_old?, emoji?, badge?, stock?, description?, sizes?, size_stocks? }
 async function updateProduct(request, env, params) {
   const body = await request.json();
   const fields = ['name', 'category', 'price', 'price_old', 'emoji', 'badge', 'stock', 'description', 'sizes', 'size_stocks'];
@@ -263,9 +263,23 @@ async function updateProduct(request, env, params) {
   const values = [];
   for (const f of fields) {
     if (f in body) {
-      sets.push(`${f} = ?`);
-      const val = f === 'sizes' ? (body[f] && body[f].length ? JSON.stringify(body[f]) : null) : body[f];
-      values.push(val);
+      if (f === 'size_stocks') {
+        const ss = body[f] && Object.keys(body[f]).length ? JSON.stringify(body[f]) : null;
+        sets.push('size_stocks = ?');
+        values.push(ss);
+        // Mettre à jour le stock global automatiquement
+        const total = totalStockFromSizes(ss);
+        if (total !== null) {
+          sets.push('stock = ?');
+          values.push(total);
+        }
+      } else if (f === 'sizes') {
+        sets.push('sizes = ?');
+        values.push(body[f] && body[f].length ? JSON.stringify(body[f]) : null);
+      } else {
+        sets.push(`${f} = ?`);
+        values.push(body[f]);
+      }
     }
   }
   if (!sets.length) return json({ error: 'Aucun champ à mettre à jour' }, 400);
@@ -273,27 +287,6 @@ async function updateProduct(request, env, params) {
   values.push(params.id);
   await env.DB.prepare(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
   return json({ success: true });
-}
-for (const f of fields) {
-  if (f in body) {
-    if (f === 'size_stocks') {
-      const ss = body[f] && Object.keys(body[f]).length ? JSON.stringify(body[f]) : null;
-      sets.push('size_stocks = ?');
-      values.push(ss);
-      // Mettre à jour le stock global automatiquement
-      const total = totalStockFromSizes(ss);
-      if (total !== null) {
-        sets.push('stock = ?');
-        values.push(total);
-      }
-    } else if (f === 'sizes') {
-      sets.push('sizes = ?');
-      values.push(body[f] && body[f].length ? JSON.stringify(body[f]) : null);
-    } else {
-      sets.push(`${f} = ?`);
-      values.push(body[f]);
-    }
-  }
 }
 
 // DELETE /api/admin/products/:id
