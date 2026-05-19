@@ -800,7 +800,7 @@ function removeCartItem(key) {
   input.value = value;
 }
 
-  function addFromModal() {
+function addFromModal() {
     if (!currentModalProduct) return;
     const p = currentModalProduct;
     const sizes = Array.isArray(p.sizes) ? p.sizes : [];
@@ -809,6 +809,17 @@ function removeCartItem(key) {
       return;
     }
     const qty = parseInt(document.getElementById('productQty').value || '1', 10);
+    if (sizes.length > 0) {
+      const sizeStocks = (p.size_stocks && typeof p.size_stocks === 'object') ? p.size_stocks : {};
+      const available = Number(sizeStocks[selectedSize] ?? 0);
+      if (available < qty) {
+        showToast('⚠ Stock insuffisant pour cette taille', 2500);
+        return;
+      }
+    } else if (p.stock < qty) {
+      showToast('⚠ Stock insuffisant', 2500);
+      return;
+    }
 addToCart(p.id, p.name, p.price, selectedSize, qty);
     closeProductModal();
   }
@@ -897,7 +908,7 @@ addToCart(p.id, p.name, p.price, selectedSize, qty);
       customer_name:  document.getElementById('oName').value,
       customer_email: document.getElementById('oEmail').value,
       customer_phone: document.getElementById('oPhone').value,
-      items: cartItems.map(function(i) { return { product_id: i.product_id, quantity: i.quantity }; }),
+      items: cartItems.map(function(i) { return { product_id: i.product_id, quantity: i.quantity, size: i.size || null }; }),
       notes: (document.getElementById('oNotes').value + (cartItems.some(function(i){return i.size;}) ? '\nTailles : ' + cartItems.filter(function(i){return i.size;}).map(function(i){return i.name+' → '+i.size;}).join(', ') : '')).trim(),
     };
 

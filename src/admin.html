@@ -185,6 +185,23 @@
     .admin-nav-btn { font-size: 11px; padding: 6px 10px; }
     .admin-content { padding: 1rem; }
   }
+
+  .size-stock-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.size-stock-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--light);
+}
+
 </style>
 </head>
 <body>
@@ -271,18 +288,48 @@
             <label>Stock *</label>
             <input id="pStock" type="number" min="0" class="form-control" placeholder="10"/>
           </div>
-          <div class="form-group" id="sizesGroup" style="display:none">
-            <label>Tailles disponibles</label>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px" id="sizesCheckboxes">
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="XS" class="size-cb"/> XS</label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="S" class="size-cb"/> S</label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="M" class="size-cb"/> M</label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="L" class="size-cb"/> L</label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="XL" class="size-cb"/> XL</label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="XXL" class="size-cb"/> XXL</label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;color:var(--light);text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" value="XXXL" class="size-cb"/> XXXL</label>
-            </div>
-          </div>
+          <div class="form-group" id="sizesGroup" style="display:none; grid-column:1/-1">
+  <label>Tailles disponibles et stock par taille</label>
+
+  <div id="sizesCheckboxes" style="display:grid;gap:10px;margin-top:8px">
+
+    <div class="size-stock-row">
+      <label><input type="checkbox" value="XS" class="size-cb" onchange="toggleSizeStock(this)"> XS</label>
+      <input type="number" min="0" class="form-control size-stock-input" data-size="XS" placeholder="Stock XS" disabled>
+    </div>
+
+    <div class="size-stock-row">
+      <label><input type="checkbox" value="S" class="size-cb" onchange="toggleSizeStock(this)"> S</label>
+      <input type="number" min="0" class="form-control size-stock-input" data-size="S" placeholder="Stock S" disabled>
+    </div>
+
+    <div class="size-stock-row">
+      <label><input type="checkbox" value="M" class="size-cb" onchange="toggleSizeStock(this)"> M</label>
+      <input type="number" min="0" class="form-control size-stock-input" data-size="M" placeholder="Stock M" disabled>
+    </div>
+
+    <div class="size-stock-row">
+      <label><input type="checkbox" value="L" class="size-cb" onchange="toggleSizeStock(this)"> L</label>
+      <input type="number" min="0" class="form-control size-stock-input" data-size="L" placeholder="Stock L" disabled>
+    </div>
+
+    <div class="size-stock-row">
+      <label><input type="checkbox" value="XL" class="size-cb" onchange="toggleSizeStock(this)"> XL</label>
+      <input type="number" min="0" class="form-control size-stock-input" data-size="XL" placeholder="Stock XL" disabled>
+    </div>
+
+    <div class="size-stock-row">
+      <label><input type="checkbox" value="XXL" class="size-cb" onchange="toggleSizeStock(this)"> XXL</label>
+      <input type="number" min="0" class="form-control size-stock-input" data-size="XXL" placeholder="Stock XXL" disabled>
+    </div>
+
+    <div class="size-stock-row">
+      <label><input type="checkbox" value="XXXL" class="size-cb" onchange="toggleSizeStock(this)"> XXXL</label>
+      <input type="number" min="0" class="form-control size-stock-input" data-size="XXXL" placeholder="Stock XXXL" disabled>
+    </div>
+
+  </div>
+</div>
           <div class="form-group" style="grid-column:1/-1">
             <label>Image du produit</label>
             <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
@@ -588,6 +635,19 @@ async function loadProductsTable() {
   renderProductsTable(data);
 }
 
+function toggleSizeStock(checkbox) {
+  const size = checkbox.value;
+  const input = document.querySelector(`.size-stock-input[data-size="${size}"]`);
+
+  if (!input) return;
+
+  input.disabled = !checkbox.checked;
+
+  if (!checkbox.checked) {
+    input.value = '';
+  }
+}
+
 function renderProductsTable(products) {
   const tbody = document.getElementById('productTableBody');
   if (!Array.isArray(products) || products.length === 0) {
@@ -642,9 +702,14 @@ function resetProductForm() {
   document.getElementById('pCategory').value = 'gants';
   document.getElementById('pBadge').value = '';
   clearFormImg();
-  document.querySelectorAll('.size-cb').forEach(cb => cb.checked = false);
+  document.querySelectorAll('.size-cb').forEach(cb => { cb.checked = false; });
+  document.querySelectorAll('.size-stock-input').forEach(input => {
+  input.value = '';
+  input.disabled = true;
+});
   onCategoryChange();
 }
+
 
 function onCategoryChange() {
   const cat = document.getElementById('pCategory').value;
@@ -688,6 +753,7 @@ function clearFormImg() {
 function editProduct(id) {
   const p = allProducts.find(x => x.id === id);
   if (!p) return;
+  const savedSizes = (() => { try { return JSON.parse(p.sizes || '[]'); } catch(e) { return []; } })();
   document.getElementById('editProductId').value = id;
   document.getElementById('productFormTitle').textContent = `✏ Modifier — ${p.name}`;
   document.getElementById('pName').value      = p.name;
@@ -699,8 +765,27 @@ function editProduct(id) {
   document.getElementById('pDesc').value      = p.description || '';
   clearFormImg();
   // Tailles
-  const savedSizes = (() => { try { return JSON.parse(p.sizes || '[]'); } catch(e) { return []; } })();
-  document.querySelectorAll('.size-cb').forEach(cb => { cb.checked = savedSizes.includes(cb.value); });
+  const sizeStocks = p.size_stocks || {};
+
+// Réinitialiser
+ document.querySelectorAll('.size-stock-input').forEach(input => {
+  input.value = '';
+  input.disabled = true;
+});
+
+// Remplir
+  document.querySelectorAll('.size-cb').forEach(cb => {
+  const checked = savedSizes.includes(cb.value);
+  cb.checked = checked;
+
+  const input = document.querySelector(`.size-stock-input[data-size="${cb.value}"]`);
+  if (input) {
+    input.disabled = !checked;
+    if (checked && sizeStocks[cb.value] !== undefined) {
+      input.value = sizeStocks[cb.value];
+    }
+  }
+});
   onCategoryChange();
   // Image existante
   if (p.image_url) {
@@ -719,21 +804,36 @@ function editProduct(id) {
 
 async function saveProduct() {
   const id = document.getElementById('editProductId').value;
-  const selectedSizes = [...document.querySelectorAll('.size-cb:checked')].map(cb => cb.value);
+  const category = document.getElementById('pCategory').value;
+  const selectedSizes = [...document.querySelectorAll('.size-cb:checked')]
+  .map(cb => cb.value);
+
+const sizeStocks = {};
+selectedSizes.forEach(size => {
+  const input = document.querySelector(`.size-stock-input[data-size="${size}"]`);
+  sizeStocks[size] = parseInt(input?.value || '0', 10);
+});
+  const usesSizeStocks = category === 'tenues' && selectedSizes.length > 0;
+  const computedStock = Object.values(sizeStocks).reduce((sum, value) => sum + (Number(value) || 0), 0);
   const payload = {
     name:        document.getElementById('pName').value.trim(),
-    category:    document.getElementById('pCategory').value,
+    category,
     price:       parseFloat(document.getElementById('pPrice').value),
     price_old:   parseFloat(document.getElementById('pPriceOld').value) || null,
-    stock:       parseInt(document.getElementById('pStock').value, 10),
+    stock:       usesSizeStocks ? computedStock : parseInt(document.getElementById('pStock').value, 10),
     emoji:       '📦',
     badge:       document.getElementById('pBadge').value || null,
     description: document.getElementById('pDesc').value.trim() || null,
     sizes:       selectedSizes,
+    size_stocks: usesSizeStocks ? sizeStocks : null,
   };
 
   if (!payload.name || isNaN(payload.price) || isNaN(payload.stock)) {
     showToast('⚠ Nom, prix et stock sont obligatoires', 'error');
+    return;
+  }
+  if (usesSizeStocks && selectedSizes.some(size => Number.isNaN(sizeStocks[size]))) {
+    showToast('⚠ Stock invalide pour au moins une taille', 'error');
     return;
   }
 

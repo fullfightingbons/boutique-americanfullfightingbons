@@ -367,11 +367,32 @@ async function createOrder(request, env) {
     }
     const product = await env.DB.prepare('SELECT * FROM products WHERE id = ?').bind(item.product_id).first();
     if (!product) return json({ error: `Produit #${item.product_id} introuvable` }, 404);
+    const sizes = product.sizes ? JSON.parse(product.sizes) : [];
+    const sizeStocks = product.size_stocks ? JSON.parse(product.size_stocks) : null;
+    const requestedSize = item.size || null;
+
+    if (sizes.length > 0) {
+      if (!requestedSize || !sizes.includes(requestedSize)) {
+        return json({ error: `Taille invalide pour "${product.name}"` }, 400);
+      }
+      const availableForSize = Number(sizeStocks?.[requestedSize] ?? 0);
+      if (availableForSize < item.quantity) {
+        return json({ error: `Stock insuffisant pour "${product.name}" en taille ${requestedSize} (stock: ${availableForSize})` }, 409);
+      }
+    } else if (requestedSize) {
+      return json({ error: `Aucune taille attendue pour "${product.name}"` }, 400);
+    }
+
     if (product.stock < item.quantity) {
       return json({ error: `Stock insuffisant pour "${product.name}" (stock: ${product.stock})` }, 409);
     }
     total += product.price * item.quantity;
-    enrichedItems.push({ ...item, product_name: product.name, unit_price: product.price });
+    enrichedItems.push({
+      ...item,
+      size: requestedSize,
+      product_name: requestedSize ? `${product.name} (${requestedSize})` : product.name,
+      unit_price: product.price,
+    });
   }
 
   const orderResult = await env.DB.prepare(
@@ -384,7 +405,18 @@ async function createOrder(request, env) {
     await env.DB.prepare(
       'INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price) VALUES (?, ?, ?, ?, ?)'
     ).bind(orderId, item.product_id, item.product_name, item.quantity, item.unit_price).run();
-    await env.DB.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').bind(item.quantity, item.product_id).run();
+    if (item.size) {
+      const current = await env.DB.prepare('SELECT size_stocks FROM products WHERE id = ?').bind(item.product_id).first();
+      const sizeStocks = current?.size_stocks ? JSON.parse(current.size_stocks) : {};
+      sizeStocks[item.size] = Math.max(0, (Number(sizeStocks[item.size]) || 0) - item.quantity);
+      await env.DB.prepare(
+        "UPDATE products SET stock = stock - ?, size_stocks = ?, updated_at = datetime('now') WHERE id = ?"
+      ).bind(item.quantity, JSON.stringify(sizeStocks), item.product_id).run();
+    } else {
+      await env.DB.prepare(
+        "UPDATE products SET stock = stock - ?, updated_at = datetime('now') WHERE id = ?"
+      ).bind(item.quantity, item.product_id).run();
+    }
   }
 
   return json({ success: true, order_id: orderId, total }, 201);
