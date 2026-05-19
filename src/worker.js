@@ -201,13 +201,22 @@ async function getProducts(request, env, _p, url) {
     args  = [];
   }
   const { results } = await env.DB.prepare(query).bind(...args).all();
-  return json(results);
+  const parsed = results.map(p => ({
+    ...p,
+    sizes:       p.sizes       ? JSON.parse(p.sizes)       : [],
+    size_stocks: p.size_stocks ? JSON.parse(p.size_stocks) : null,
+  }));
+  return json(parsed);
 }
 
 async function getProduct(_req, env, params) {
   const product = await env.DB.prepare('SELECT * FROM products WHERE id = ?').bind(params.id).first();
   if (!product) return json({ error: 'Produit introuvable' }, 404);
-  return json(product);
+  return json({
+    ...product,
+    sizes:       product.sizes       ? JSON.parse(product.sizes)       : [],
+    size_stocks: product.size_stocks ? JSON.parse(product.size_stocks) : null,
+  });
 }
 
 // ── Produits admin ───────────────────────────────────────────────
@@ -224,15 +233,24 @@ async function getAdminProducts(_req, env) {
 // Body: { name, category, price, price_old?, emoji, badge?, stock, description?, sizes? }
 async function createProduct(request, env) {
   const body = await request.json();
-  const { name, category, price, price_old, emoji, badge, stock, description, sizes } = body;
-  if (!name || !category || price == null || stock == null) {
-    return json({ error: 'Champs obligatoires : name, category, price, stock' }, 400);
+  const { name, category, price, price_old, emoji, badge, stock, description, sizes, size_stocks } = body;
+  if (!name || !category || price == null) {
+    return json({ error: 'Champs obligatoires : name, category, price' }, 400);
   }
-  const sizesJson = sizes && sizes.length ? JSON.stringify(sizes) : null;
+
+  const sizesJson      = sizes && sizes.length ? JSON.stringify(sizes) : null;
+  const sizeStocksJson = size_stocks && Object.keys(size_stocks).length ? JSON.stringify(size_stocks) : null;
+
+  // Stock = somme des tailles si size_stocks fourni, sinon stock brut
+  const computedStock = sizeStocksJson
+  ? totalStockFromSizes(sizeStocksJson)
+  : (stock ?? 0);
+
   const result = await env.DB.prepare(
-    `INSERT INTO products (name, category, price, price_old, emoji, badge, stock, description, sizes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(name, category, price, price_old ?? null, emoji ?? '📦', badge ?? null, stock, description ?? null, sizesJson).run();
+    `INSERT INTO products (name, category, price, price_old, emoji, badge, stock, description, sizes, size_stocks)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(name, category, price, price_old ?? null, emoji ?? '📦', badge ?? null, computedStock, description ?? null, sizesJson, sizeStocksJson).run();
+
   return json({ success: true, id: result.meta.last_row_id }, 201);
 }
 
@@ -240,7 +258,7 @@ async function createProduct(request, env) {
 // Body: { name?, category?, price?, price_old?, emoji?, badge?, stock?, description?, sizes? }
 async function updateProduct(request, env, params) {
   const body = await request.json();
-  const fields = ['name', 'category', 'price', 'price_old', 'emoji', 'badge', 'stock', 'description', 'sizes'];
+  const fields = ['name', 'category', 'price', 'price_old', 'emoji', 'badge', 'stock', 'description', 'sizes', 'size_stocks'];
   const sets = [];
   const values = [];
   for (const f of fields) {
@@ -255,6 +273,27 @@ async function updateProduct(request, env, params) {
   values.push(params.id);
   await env.DB.prepare(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
   return json({ success: true });
+}
+for (const f of fields) {
+  if (f in body) {
+    if (f === 'size_stocks') {
+      const ss = body[f] && Object.keys(body[f]).length ? JSON.stringify(body[f]) : null;
+      sets.push('size_stocks = ?');
+      values.push(ss);
+      // Mettre à jour le stock global automatiquement
+      const total = totalStockFromSizes(ss);
+      if (total !== null) {
+        sets.push('stock = ?');
+        values.push(total);
+      }
+    } else if (f === 'sizes') {
+      sets.push('sizes = ?');
+      values.push(body[f] && body[f].length ? JSON.stringify(body[f]) : null);
+    } else {
+      sets.push(`${f} = ?`);
+      values.push(body[f]);
+    }
+  }
 }
 
 // DELETE /api/admin/products/:id
@@ -709,4 +748,16 @@ function statusLabel(status) {
     cancelled: 'Annulée',
   };
   return map[status] || status;
+}
+
+// Calcule le stock total à partir d'un objet size_stocks JSON
+// Si size_stocks est null/vide, retourne le stock brut
+function totalStockFromSizes(sizeStocksJson) {
+  if (!sizeStocksJson) return null;
+  try {
+    const obj = typeof sizeStocksJson === 'string' ? JSON.parse(sizeStocksJson) : sizeStocksJson;
+    return Object.values(obj).reduce((sum, v) => sum + (Number(v) || 0), 0);
+  } catch {
+    return null;
+  }
 }

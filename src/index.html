@@ -718,8 +718,7 @@ function removeCartItem(key) {
     oldEl.textContent = p.price_old ? p.price_old + '€' : '';
     document.getElementById('productModalDesc').textContent = p.description || '';
 
-    let sizes = [];
-    try { sizes = JSON.parse(p.sizes || '[]'); } catch(e) {}
+    const sizes = Array.isArray(p.sizes) ? p.sizes : [];
 
     const sizeWrap = document.getElementById('productModalSizeWrap');
     const sizeGrid = document.getElementById('productModalSizes');
@@ -728,14 +727,16 @@ function removeCartItem(key) {
 
     if (sizes.length > 0) {
       sizeWrap.style.display = 'block';
+      const sizeStocks = (p.size_stocks && typeof p.size_stocks === 'object') ? p.size_stocks : {};
       sizeGrid.innerHTML = sizes.map(function(s) {
-        // Stock global partagé — affiche le stock total du produit sur chaque taille
-        const qty = p.stock;
+        // Stock par taille si size_stocks disponible, sinon stock global
+        const qty = (s in sizeStocks) ? (sizeStocks[s] || 0) : p.stock;
         const oos = qty <= 0;
         const low = qty > 0 && qty <= 3;
-       return '<button class="size-btn' + (oos ? ' out-of-stock' : '') +
+        return '<button class="size-btn' + (oos ? ' out-of-stock' : '') +
   '" data-size="' + s +
   '" data-stock="' + qty + '"' +
+  (oos ? ' disabled' : '') +
   ' onclick="selectSize(this, \'' + s + '\', ' + qty + ')">' +
   s +
   '<span class="size-stock-badge' + (low ? ' low' : '') + '">' +
@@ -802,8 +803,7 @@ function removeCartItem(key) {
   function addFromModal() {
     if (!currentModalProduct) return;
     const p = currentModalProduct;
-    let sizes = [];
-    try { sizes = JSON.parse(p.sizes || '[]'); } catch(e) {}
+    const sizes = Array.isArray(p.sizes) ? p.sizes : [];
     if (sizes.length > 0 && !selectedSize) {
       showToast('⚠ Choisissez une taille', 2000);
       return;
@@ -837,9 +837,9 @@ addToCart(p.id, p.name, p.price, selectedSize, qty);
     // Mettre en cache tous les produits reçus
     products.forEach(function(p) { productCache[p.id] = p; });
     grid.innerHTML = products.map(function(p) {
-      let sizes = [];
-      try { sizes = JSON.parse(p.sizes || '[]'); } catch(e) {}
+      const sizes = Array.isArray(p.sizes) ? p.sizes : [];
       const hasSizes = sizes.length > 0;
+      const sizeStocks = (p.size_stocks && typeof p.size_stocks === 'object') ? p.size_stocks : null;
       const btnLabel = hasSizes ? 'Choisir une taille →' : '+ Ajouter au panier';
       const pId = p.id;
       return '<div class="product-card" data-cat="' + p.category + '" onclick="openProductById(' + pId + ')">' +
