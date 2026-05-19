@@ -253,6 +253,18 @@
           </table>
         </div>
       </div>
+
+      <div style="margin-top:2rem">
+        <div class="admin-section-title">Tailles critiques (&le; 3 unités)</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Produit</th><th>Catégorie</th><th>Taille</th><th>Stock</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="lowSizeStockTable"><tr><td colspan="5" class="loader">Chargement…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ── TAB : PRODUITS ──────────────────────────────────────── -->
@@ -370,7 +382,15 @@
       <!-- Liste produits -->
       <div class="admin-section-title">
         Catalogue
-        <input id="productSearch" type="text" class="form-control" style="max-width:240px;padding:6px 12px;font-size:13px" placeholder="Rechercher…" oninput="filterProductTable()"/>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="productSearch" type="text" class="form-control" style="max-width:240px;padding:6px 12px;font-size:13px" placeholder="Rechercher…" oninput="filterProductTable()"/>
+          <select id="productStockFilter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px" onchange="filterProductTable()">
+            <option value="all">Tous les stocks</option>
+            <option value="low_global">Stock global faible</option>
+            <option value="low_size">Taille critique</option>
+            <option value="tenues">Tenues uniquement</option>
+          </select>
+        </div>
       </div>
       <div class="table-wrap">
         <table id="productTable">
@@ -517,6 +537,30 @@ function statusBadge(s) {
   return `<span class="badge badge-${s}">${labels[s] || s}</span>`;
 }
 
+function formatSizeStockSummary(rawValue) {
+  try {
+    const value = typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
+    if (!value || typeof value !== 'object') return '–';
+    const parts = Object.entries(value).map(([size, qty]) => {
+      const quantity = Number(qty) || 0;
+      return `${size}:${quantity}`;
+    });
+    return parts.length ? parts.join(' · ') : '–';
+  } catch {
+    return '–';
+  }
+}
+
+function hasCriticalSizeStock(rawValue) {
+  try {
+    const value = typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
+    if (!value || typeof value !== 'object') return false;
+    return Object.values(value).some(qty => (Number(qty) || 0) <= 3);
+  } catch {
+    return false;
+  }
+}
+
 // ════════════════════════════════════════════════════════════════
 //  AUTH
 // ════════════════════════════════════════════════════════════════
@@ -599,9 +643,14 @@ async function loadDashboard() {
         <div class="stat-n" style="color:var(--red)">${data.low_stock.length}</div>
         <div class="stat-l">Produits stock faible</div>
       </div>
+      <div class="stat-card" style="border-color:var(--yellow)">
+        <div class="stat-n" style="color:var(--yellow)">${(data.low_size_stock || []).length}</div>
+        <div class="stat-l">Tailles critiques</div>
+      </div>
     </div>`;
 
   const tbody = document.getElementById('lowStockTable');
+  const sizeTbody = document.getElementById('lowSizeStockTable');
   if (!data.low_stock.length) {
     tbody.innerHTML = '<tr><td colspan="5" style="color:var(--green);padding:1rem">✓ Tous les stocks sont corrects</td></tr>';
   } else {
@@ -610,9 +659,26 @@ async function loadDashboard() {
         <td>${p.emoji || '📦'} ${p.name}</td>
         <td>${capitalize(p.category)}</td>
         <td>${fmt(p.price)}</td>
-        <td><span class="low-stock-warn">⚠ ${p.stock} restant(s)</span></td>
+        <td>
+          <span class="low-stock-warn">⚠ ${p.stock} restant(s)</span>
+          <div style="font-size:11px;color:var(--gray);margin-top:4px">${formatSizeStockSummary(p.size_stocks)}</div>
+        </td>
         <td><button class="btn btn-dark btn-sm" onclick="editProduct(${p.id})">Modifier</button></td>
       </tr>`).join('');
+  }
+
+  if (!data.low_size_stock || !data.low_size_stock.length) {
+    sizeTbody.innerHTML = '<tr><td colspan="5" style="color:var(--green);padding:1rem">✓ Aucune taille critique</td></tr>';
+  } else {
+    sizeTbody.innerHTML = data.low_size_stock.map(item => `
+      <tr>
+        <td><strong>${item.product_name}</strong></td>
+        <td>${capitalize(item.category)}</td>
+        <td>${item.size}</td>
+        <td>${item.stock <= 0 ? `<span class="low-stock-warn">Rupture</span>` : `<span class="low-stock-warn">⚠ ${item.stock}</span>`}</td>
+        <td><button class="btn btn-dark btn-sm" onclick="editProduct(${item.product_id})">Modifier</button></td>
+      </tr>
+    `).join('');
   }
 }
 
@@ -669,9 +735,14 @@ function renderProductsTable(products) {
         <strong>${fmt(p.price)}</strong>
         ${p.price_old ? `<span style="color:var(--gray);text-decoration:line-through;font-size:12px;margin-left:6px">${fmt(p.price_old)}</span>` : ''}
       </td>
-      <td>${p.stock <= 3 ? `<span class="low-stock-warn">⚠ ${p.stock}</span>` : p.stock}</td>
+      <td>
+        ${p.stock <= 3 ? `<span class="low-stock-warn">⚠ ${p.stock}</span>` : p.stock}
+        <div style="font-size:11px;color:${hasCriticalSizeStock(p.size_stocks) ? 'var(--yellow)' : 'var(--gray)'};margin-top:4px">${formatSizeStockSummary(p.size_stocks)}</div>
+      </td>
       <td>${p.badge ? `<span class="badge ${p.badge==='Nouveau'?'badge-confirmed':'badge-shipped'}">${p.badge}</span>` : '–'}</td>
-      <td style="font-size:12px;color:var(--gray)">${(() => { try { const s=JSON.parse(p.sizes||'[]'); return s.length ? s.join(', ') : '–'; } catch(e){return '–';} })()}</td>
+      <td style="font-size:12px;color:var(--gray)">
+        ${(() => { try { const s=JSON.parse(p.sizes||'[]'); return s.length ? s.join(', ') : '–'; } catch(e){return '–';} })()}
+      </td>
       <td>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn btn-dark btn-sm" onclick="editProduct(${p.id})">✏ Modifier</button>
@@ -683,8 +754,19 @@ function renderProductsTable(products) {
 
 function filterProductTable() {
   const q = document.getElementById('productSearch').value.toLowerCase();
+  const stockFilter = document.getElementById('productStockFilter').value;
   const filtered = allProducts.filter(p =>
-    p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
+    (
+      p.name.toLowerCase().includes(q) ||
+      p.category.toLowerCase().includes(q) ||
+      formatSizeStockSummary(p.size_stocks).toLowerCase().includes(q)
+    ) &&
+    (
+      stockFilter === 'all' ||
+      (stockFilter === 'low_global' && Number(p.stock || 0) <= 3) ||
+      (stockFilter === 'low_size' && hasCriticalSizeStock(p.size_stocks)) ||
+      (stockFilter === 'tenues' && p.category === 'tenues')
+    )
   );
   renderProductsTable(filtered);
 }
