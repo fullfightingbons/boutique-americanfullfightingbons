@@ -33,6 +33,7 @@ HELLOASSO_ERROR_URL   = "https://boutique-americanfullfightingbons.workers.dev/?
 # Brevo — à adapter
 BREVO_FROM_EMAIL      = "boutique@americanfullfightingbons.fr"
 BREVO_FROM_NAME       = "AFFB Boutique"
+BREVO_CLUB_EMAIL      = "fullfightingbons@gmail.com"
 
 # HelloAsso OAuth2 client_id (non secret, peut rester ici)
 # HELLOASSO_CLIENT_ID = "votre-client-id-ici"
