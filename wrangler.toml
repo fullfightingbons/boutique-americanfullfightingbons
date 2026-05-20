@@ -1,5 +1,5 @@
 name = "boutique-americanfullfightingbons"
-main = "src/worker.js"
+main = "worker.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
@@ -27,8 +27,8 @@ ENVIRONMENT           = "production"
 
 # HelloAsso — à adapter à votre organisation
 HELLOASSO_ORG_SLUG    = "american-full-fighting-bons-en-chablais"
-HELLOASSO_RETURN_URL  = "https://boutique-americanfullfightingbons.workers.dev/?payment=success"
-HELLOASSO_ERROR_URL   = "https://boutique-americanfullfightingbons.workers.dev/?payment=error"
+HELLOASSO_RETURN_URL  = "https://boutique.americanfullfightingbons.fr/?payment=success"
+HELLOASSO_ERROR_URL   = "https://boutique.americanfullfightingbons.fr/?payment=error"
 
 # Brevo — à adapter
 BREVO_FROM_EMAIL      = "boutique@americanfullfightingbons.fr"
