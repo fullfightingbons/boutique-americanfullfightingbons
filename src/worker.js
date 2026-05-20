@@ -591,7 +591,7 @@ async function createCheckout(request, env, params) {
     initialAmount: totalCents,
     itemName: `Commande AFFB #${order.id}`,
     backUrl:   buildCheckoutReturnUrl(env.HELLOASSO_RETURN_URL || origin, order.id, 'back'),
-    errorUrl:  buildCheckoutReturnUrl(env.HELLOASSO_ERROR_URL || env.HELLOASSO_RETURN_URL || 'https://boutique-americanfullfightingbons.workers.dev/', order.id, 'failed'),
+    errorUrl:  buildCheckoutReturnUrl(env.HELLOASSO_ERROR_URL || env.HELLOASSO_RETURN_URL || origin, order.id, 'failed'),
     returnUrl: callbackUrl.toString(),
     containsDonation: false,
     payer: {
@@ -647,7 +647,7 @@ async function checkoutCallback(request, env, _params, url) {
     } catch (err) {
       console.error('Checkout finalize failed', err);
       return Response.redirect(
-        buildCheckoutReturnUrl(env.HELLOASSO_ERROR_URL || env.HELLOASSO_RETURN_URL || '/', callbackInfo.orderId, 'invoice_error'),
+        buildCheckoutReturnUrl(env.HELLOASSO_ERROR_URL || env.HELLOASSO_RETURN_URL || env.HELLOASSO_RETURN_URL || '/', callbackInfo.orderId, 'invoice_error'),
         302
       );
     }
@@ -689,7 +689,7 @@ async function sendInvoiceForOrder(env, orderId) {
     env.BREVO_CLUB_EMAIL || 'fullfightingbons@gmail.com',
   ].filter(Boolean);
 
-  const invoicePdfBase64 = buildInvoicePdfBase64(order, items);
+  const invoicePdfBase64 = buildInvoicePdfBase64(order, items, env);
   const emailPayload = {
     sender: {
       name:  env.BREVO_FROM_NAME  || 'AFFB Boutique',
@@ -700,7 +700,7 @@ async function sendInvoiceForOrder(env, orderId) {
       name: email === order.customer_email ? order.customer_name : 'Club AFFB',
     })),
     subject: `Commande AFFB #${order.id} — Facture PDF`,
-    htmlContent: buildEmailHtml(order, items),
+    htmlContent: buildEmailHtml(order, items, env),
     attachment: [
       {
         name:    `facture-affb-${String(order.id).padStart(6, '0')}.pdf`,
@@ -784,7 +784,8 @@ async function resolveCheckoutCallbackOrder(env, url) {
 }
 
 // ── Générateur email HTML (corps du message Brevo) ───────────────
-function buildEmailHtml(order, items) {
+function buildEmailHtml(order, items, env) {
+  const contactEmail = (env && env.BREVO_CLUB_EMAIL) || 'fullfightingbons@gmail.com';
   const date = new Date(order.created_at).toLocaleDateString('fr-FR', {
     year: 'numeric', month: 'long', day: 'numeric',
   });
@@ -828,7 +829,7 @@ function buildEmailHtml(order, items) {
       <p style="color:#888;font-size:14px;line-height:1.7">
         Votre commande est <strong style="color:#fff">${statusLabel(order.status)}</strong>.<br/>
         La facture PDF est jointe à cet email et transmise aussi au club.<br/><br/>
-        Pour toute question : <a href="mailto:boutique@americanfullfightingbons.fr" style="color:#C8181A">boutique@americanfullfightingbons.fr</a>
+        Pour toute question : <a href="mailto:${contactEmail}" style="color:#C8181A">${contactEmail}</a>
       </p>
     </div>
     <div style="background:#0A0A0B;padding:20px 40px;text-align:center;border-top:1px solid #1A1A1F">
@@ -960,7 +961,7 @@ function buildSimplePdfBase64(lines) {
   return btoa(pdf);
 }
 
-function buildInvoicePdfBase64(order, items) {
+function buildInvoicePdfBase64(order, items, env) {
   const date = new Date(order.created_at).toLocaleDateString('fr-FR', {
     year: 'numeric', month: '2-digit', day: '2-digit',
   });
@@ -971,8 +972,8 @@ function buildInvoicePdfBase64(order, items) {
   const orderNote = normalizePdfText(order.notes || '');
   const status = normalizePdfText(statusLabel(order.status));
   const totalText = `${Number(order.total).toFixed(2)} EUR`;
-  const clubEmail = normalizePdfText(envSafeValue('fullfightingbons@gmail.com'));
-  const boutiqueEmail = normalizePdfText(envSafeValue('boutique@americanfullfightingbons.fr'));
+  const clubEmail = normalizePdfText((env && env.BREVO_CLUB_EMAIL) || 'fullfightingbons@gmail.com');
+  const boutiqueEmail = normalizePdfText((env && env.BREVO_FROM_EMAIL) || 'fullfightingbons@gmail.com');
   const clubSite = normalizePdfText(envSafeValue('www.americanfullfightingbons.fr'));
 
   let y = 790;
@@ -1133,7 +1134,13 @@ function buildRichPdfBase64(contentLines) {
     pdf += `${String(entries[id]).padStart(10, '0')} 00000 n \n`;
   }
   pdf += `trailer\n<< /Size ${objects.length} /Root ${catalogId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-  return btoa(pdf);
+  // Le stream contient des octets binaires (JPEG du logo).
+  // btoa() rejette les caractères > 0xFF ; on masque chaque code point.
+  let binary = '';
+  for (let i = 0; i < pdf.length; i++) {
+    binary += String.fromCharCode(pdf.charCodeAt(i) & 0xff);
+  }
+  return btoa(binary);
 }
 
 function envSafeValue(fallback) {
@@ -1154,7 +1161,17 @@ function isHelloAssoSuccess(url) {
 }
 
 function buildCheckoutReturnUrl(baseUrl, orderId, status) {
-  const url = new URL(baseUrl, 'https://boutique-americanfullfightingbons.workers.dev/');
+  // baseUrl peut être une URL absolue (HELLOASSO_RETURN_URL) ou relative.
+  // On utilise une base neutre pour la résolution relative, puis on
+  // reconstruit proprement avec les bons paramètres.
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    // baseUrl est relatif ou invalide — on le complète avec une base fictive
+    // qui sera de toute façon écrasée par les valeurs réelles de l'env.
+    url = new URL(baseUrl, 'https://boutique.americanfullfightingbons.fr/');
+  }
   url.searchParams.set('order', String(orderId));
   url.searchParams.set('status', status);
   return url.toString();
