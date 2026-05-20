@@ -72,15 +72,15 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
 
-    if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }));
+    if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }), request);
 
     // Route spéciale : images R2 (clé avec sous-chemin ex: products/1-xxx.jpg)
     if (request.method === 'GET' && pathname.startsWith('/images/')) {
       try {
         const res = await serveImage(request, env, {}, url);
-        return cors(res);
+        return cors(res, request);
       } catch (err) {
-        return cors(new Response('Erreur image', { status: 500 }));
+        return cors(new Response('Erreur image', { status: 500 }), request);
       }
     }
 
@@ -91,18 +91,18 @@ export default {
           // Vérification token admin si route protégée
           if (r.adminOnly) {
             const authResult = await checkAdminAuth(request, env);
-            if (!authResult.ok) return cors(json({ error: 'Non autorisé' }, 401));
+            if (!authResult.ok) return cors(json({ error: 'Non autorisé' }, 401), request);
           }
           const res = await r.handler(request, env, params, url);
-          return cors(res);
+          return cors(res, request);
         } catch (err) {
           console.error(err);
-          return cors(json({ error: 'Erreur serveur', detail: err.message }, 500));
+          return cors(json({ error: 'Erreur serveur', detail: err.message }, 500), request);
         }
       }
     }
 
-    return cors(json({ error: 'Route introuvable' }, 404));
+    return cors(json({ error: 'Route introuvable' }, 404), request);
   },
 };
 
@@ -114,18 +114,25 @@ function json(data, status = 200) {
   });
 }
 
-function cors(response) {
+function cors(response, request) {
   const r = new Response(response.body, response);
   // Origines autorisées : domaine boutique + workers.dev pour le dev local.
-  // Ajuster ALLOWED_ORIGINS si le domaine custom change.
+  // Ajuster si le domaine custom change.
   const ALLOWED_ORIGINS = [
     'https://boutique.americanfullfightingbons.fr',
     'https://boutique-americanfullfightingbons.workers.dev',
   ];
-  // En mode dev (wrangler dev) l'origine est localhost — on la laisse passer.
-  r.headers.set('Access-Control-Allow-Origin', '*');
+  const origin = request?.headers?.get('Origin') || '';
+  // En dev local (wrangler dev), origin est vide ou localhost — on laisse passer.
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : (origin ? null : '*');
+  if (allowedOrigin) {
+    r.headers.set('Access-Control-Allow-Origin', allowedOrigin);
+  }
   r.headers.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   r.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (allowedOrigin && allowedOrigin !== '*') {
+    r.headers.set('Vary', 'Origin');
+  }
   return r;
 }
 
@@ -455,6 +462,40 @@ async function updateOrderStatus(request, env, params) {
   if (!allowed.includes(status)) {
     return json({ error: `Statut invalide. Valeurs acceptées : ${allowed.join(', ')}` }, 400);
   }
+
+  // Si la commande passe en "cancelled", recréditer le stock des articles.
+  // Le stock avait été décrémenté lors de createOrder (réservation optimiste).
+  if (status === 'cancelled') {
+    const order = await env.DB.prepare('SELECT status FROM orders WHERE id = ?').bind(params.id).first();
+    // Ne recréditer que si la commande n'était pas déjà annulée
+    if (order && order.status !== 'cancelled') {
+      const { results: items } = await env.DB.prepare(
+        'SELECT * FROM order_items WHERE order_id = ?'
+      ).bind(params.id).all();
+
+      for (const item of items) {
+        // Détecter la taille depuis le nom du produit ex: "T-shirt (M)"
+        const sizeMatch = /\(([^()]+)\)\s*$/.exec(item.product_name || '');
+        const itemSize = sizeMatch ? sizeMatch[1] : null;
+
+        if (itemSize) {
+          const current = await env.DB.prepare(
+            'SELECT size_stocks FROM products WHERE id = ?'
+          ).bind(item.product_id).first();
+          const sizeStocks = current?.size_stocks ? JSON.parse(current.size_stocks) : {};
+          sizeStocks[itemSize] = (Number(sizeStocks[itemSize]) || 0) + item.quantity;
+          await env.DB.prepare(
+            "UPDATE products SET stock = stock + ?, size_stocks = ?, updated_at = datetime('now') WHERE id = ?"
+          ).bind(item.quantity, JSON.stringify(sizeStocks), item.product_id).run();
+        } else {
+          await env.DB.prepare(
+            "UPDATE products SET stock = stock + ?, updated_at = datetime('now') WHERE id = ?"
+          ).bind(item.quantity, item.product_id).run();
+        }
+      }
+    }
+  }
+
   await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, params.id).run();
   return json({ success: true, order_id: Number(params.id), status });
 }
@@ -701,6 +742,18 @@ async function finalizePaidOrder(env, orderId) {
   return { confirmed: true, invoice_sent: invoice.sent };
 }
 
+// Décode un état HelloAsso encodé en base64+JSON (optionnel dans certains flows).
+// Retourne l'orderId si trouvé, sinon null — ne throw jamais.
+function decodeHelloAssoState(val) {
+  if (!val) return null;
+  try {
+    const decoded = JSON.parse(atob(val));
+    return decoded?.orderId ? String(decoded.orderId) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveCheckoutCallbackOrder(env, url) {
   const directOrderId =
     url.searchParams.get('orderId') ||
@@ -730,76 +783,7 @@ async function resolveCheckoutCallbackOrder(env, url) {
   return { orderId: null, source: 'unresolved' };
 }
 
-// ── Générateur HTML facture ───────────────────────────────────────
-function buildInvoiceHtml(order, items) {
-  const date = new Date(order.created_at).toLocaleDateString('fr-FR', {
-    year: 'numeric', month: 'long', day: 'numeric',
-  });
-  const rows = items.map(i => `
-    <tr>
-      <td style="padding:10px 16px;border-bottom:1px solid #eee">${i.product_name}</td>
-      <td style="padding:10px 16px;border-bottom:1px solid #eee;text-align:center">${i.quantity}</td>
-      <td style="padding:10px 16px;border-bottom:1px solid #eee;text-align:right">${i.unit_price.toFixed(2)} €</td>
-      <td style="padding:10px 16px;border-bottom:1px solid #eee;text-align:right;font-weight:600">${(i.unit_price * i.quantity).toFixed(2)} €</td>
-    </tr>`).join('');
-
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8"/>
-  <title>Facture AFFB #${order.id}</title>
-</head>
-<body style="font-family:Arial,sans-serif;max-width:800px;margin:40px auto;color:#111">
-  <table style="width:100%;margin-bottom:40px">
-    <tr>
-      <td>
-        <h1 style="margin:0;font-size:28px;color:#C8181A">AFFBC BOUTIQUE</h1>
-        <p style="margin:4px 0;color:#666;font-size:13px">American Full Fighting Bons-en-Chablais<br/>
-        146 Rue du Châtelard, 74890 Bons-en-Chablais<br/>
-        boutique@americanfullfightingbons.fr</p>
-      </td>
-      <td style="text-align:right">
-        <h2 style="margin:0;font-size:22px">FACTURE</h2>
-        <p style="margin:4px 0;color:#666;font-size:13px">N° ${String(order.id).padStart(6, '0')}<br/>
-        Date : ${date}<br/>
-        Statut : <strong>${statusLabel(order.status)}</strong></p>
-      </td>
-    </tr>
-  </table>
-
-  <div style="background:#f9f9f9;padding:20px;margin-bottom:30px;border-left:4px solid #C8181A">
-    <h3 style="margin:0 0 8px;font-size:14px;text-transform:uppercase;color:#C8181A">Client</h3>
-    <p style="margin:0;font-size:15px"><strong>${order.customer_name}</strong><br/>
-    ${order.customer_email}${order.customer_phone ? `<br/>${order.customer_phone}` : ''}
-    ${order.notes ? `<br/><em>Note : ${order.notes}</em>` : ''}</p>
-  </div>
-
-  <table style="width:100%;border-collapse:collapse;margin-bottom:30px">
-    <thead>
-      <tr style="background:#C8181A;color:#fff">
-        <th style="padding:12px 16px;text-align:left">Produit</th>
-        <th style="padding:12px 16px;text-align:center">Qté</th>
-        <th style="padding:12px 16px;text-align:right">Prix unit.</th>
-        <th style="padding:12px 16px;text-align:right">Total</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-    <tfoot>
-      <tr style="background:#111;color:#fff">
-        <td colspan="3" style="padding:14px 16px;text-align:right;font-weight:700;font-size:16px">TOTAL</td>
-        <td style="padding:14px 16px;text-align:right;font-weight:700;font-size:18px">${order.total.toFixed(2)} €</td>
-      </tr>
-    </tfoot>
-  </table>
-
-  <p style="font-size:12px;color:#999;text-align:center;margin-top:40px;border-top:1px solid #eee;padding-top:20px">
-    Association loi 1901 — TVA non applicable, art. 293 B du CGI<br/>
-    Merci pour votre commande et votre soutien au club AFFB !
-  </p>
-</body>
-</html>`;
-}
-
+// ── Générateur email HTML (corps du message Brevo) ───────────────
 function buildEmailHtml(order, items) {
   const date = new Date(order.created_at).toLocaleDateString('fr-FR', {
     year: 'numeric', month: 'long', day: 'numeric',
