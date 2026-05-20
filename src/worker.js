@@ -222,7 +222,13 @@ async function getProducts(request, env, _p, url) {
     ...p,
     sizes:       p.sizes       ? JSON.parse(p.sizes)       : [],
     size_stocks: p.size_stocks ? JSON.parse(p.size_stocks) : null,
-  }));
+  })).filter(p => {
+    // Exclure les produits avec tailles dont toutes sont à stock 0
+    if (p.size_stocks && p.sizes && p.sizes.length > 0) {
+      return p.sizes.some(s => (p.size_stocks[s] || 0) > 0);
+    }
+    return true;
+  });
   return json(parsed);
 }
 
@@ -647,7 +653,7 @@ async function checkoutCallback(request, env, _params, url) {
     } catch (err) {
       console.error('Checkout finalize failed', err);
       return Response.redirect(
-        buildCheckoutReturnUrl(env.HELLOASSO_ERROR_URL || env.HELLOASSO_RETURN_URL || env.HELLOASSO_RETURN_URL || '/', callbackInfo.orderId, 'invoice_error'),
+        buildCheckoutReturnUrl(env.HELLOASSO_ERROR_URL || env.HELLOASSO_RETURN_URL || '/', callbackInfo.orderId, 'invoice_error'),
         302
       );
     }
@@ -958,7 +964,11 @@ function buildSimplePdfBase64(lines) {
     pdf += `${String(entries[id]).padStart(10, '0')} 00000 n \n`;
   }
   pdf += `trailer\n<< /Size ${objects.length} /Root ${catalogId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-  return btoa(pdf);
+  let binary = '';
+  for (let i = 0; i < pdf.length; i++) {
+    binary += String.fromCharCode(pdf.charCodeAt(i) & 0xff);
+  }
+  return btoa(binary);
 }
 
 function buildInvoicePdfBase64(order, items, env) {
