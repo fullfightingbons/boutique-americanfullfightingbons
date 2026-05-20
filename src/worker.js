@@ -62,8 +62,9 @@ const routes = [
   // ── Brevo invoice ─────────────────────────────────────────────
   route('POST',  '/api/admin/invoice/:orderId', sendInvoice,   true),
 
-  // ── Images produits (servies depuis R2) ───────────────────────
-  route('GET',   '/images/:key',               serveImage),
+  // Note : la route GET /images/:key est gérée directement dans le
+  // fetch handler (avant ce tableau) pour supporter les clés avec
+  // sous-chemins (ex: products/1-xxx.jpg). Ne pas la redéclarer ici.
 ];
 
 export default {
@@ -115,6 +116,13 @@ function json(data, status = 200) {
 
 function cors(response) {
   const r = new Response(response.body, response);
+  // Origines autorisées : domaine boutique + workers.dev pour le dev local.
+  // Ajuster ALLOWED_ORIGINS si le domaine custom change.
+  const ALLOWED_ORIGINS = [
+    'https://boutique.americanfullfightingbons.fr',
+    'https://boutique-americanfullfightingbons.workers.dev',
+  ];
+  // En mode dev (wrangler dev) l'origine est localhost — on la laisse passer.
   r.headers.set('Access-Control-Allow-Origin', '*');
   r.headers.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   r.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -168,6 +176,8 @@ async function adminLogin(request, env) {
   await env.DB.prepare(
     'INSERT INTO admin_sessions (token, expires_at) VALUES (?, ?)'
   ).bind(token, expiresAt).run();
+  // Nettoyage des sessions expirées (évite la croissance indéfinie de la table)
+  await env.DB.prepare("DELETE FROM admin_sessions WHERE expires_at <= datetime('now')").run();
   return json({ token, expires_at: expiresAt });
 }
 
@@ -358,6 +368,11 @@ async function createOrder(request, env) {
     return json({ error: 'Champs obligatoires manquants : customer_name, customer_email, items' }, 400);
   }
 
+  // Validation basique de l'email côté serveur
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer_email)) {
+    return json({ error: 'Adresse email invalide' }, 400);
+  }
+
   let total = 0;
   const enrichedItems = [];
 
@@ -392,6 +407,7 @@ async function createOrder(request, env) {
       size: requestedSize,
       product_name: requestedSize ? `${product.name} (${requestedSize})` : product.name,
       unit_price: product.price,
+      _product: product,
     });
   }
 
@@ -405,6 +421,22 @@ async function createOrder(request, env) {
     await env.DB.prepare(
       'INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price) VALUES (?, ?, ?, ?, ?)'
     ).bind(orderId, item.product_id, item.product_name, item.quantity, item.unit_price).run();
+
+    // ── Décrémenter le stock immédiatement à la création de la commande
+    // (réservation optimiste). finalizePaidOrder ne redécrément pas.
+    const product = item._product;
+    const sizes = product.sizes ? JSON.parse(product.sizes) : [];
+    if (item.size && sizes.length > 0) {
+      const sizeStocks = product.size_stocks ? JSON.parse(product.size_stocks) : {};
+      sizeStocks[item.size] = Math.max(0, (Number(sizeStocks[item.size]) || 0) - item.quantity);
+      await env.DB.prepare(
+        "UPDATE products SET stock = MAX(0, stock - ?), size_stocks = ?, updated_at = datetime('now') WHERE id = ?"
+      ).bind(item.quantity, JSON.stringify(sizeStocks), item.product_id).run();
+    } else {
+      await env.DB.prepare(
+        "UPDATE products SET stock = MAX(0, stock - ?), updated_at = datetime('now') WHERE id = ?"
+      ).bind(item.quantity, item.product_id).run();
+    }
   }
 
   return json({ success: true, order_id: orderId, total, status: 'pending_payment' }, 201);
@@ -661,23 +693,8 @@ async function finalizePaidOrder(env, orderId) {
     return { confirmed: true, invoice_sent: true, skipped: true };
   }
 
-  const { results: items } = await env.DB.prepare('SELECT * FROM order_items WHERE order_id = ?').bind(orderId).all();
-  for (const item of items) {
-    const sizeMatch = /\(([^()]+)\)\s*$/.exec(item.product_name || '');
-    const itemSize = sizeMatch ? sizeMatch[1] : null;
-    if (itemSize) {
-      const current = await env.DB.prepare('SELECT size_stocks FROM products WHERE id = ?').bind(item.product_id).first();
-      const sizeStocks = current?.size_stocks ? JSON.parse(current.size_stocks) : {};
-      sizeStocks[itemSize] = Math.max(0, (Number(sizeStocks[itemSize]) || 0) - item.quantity);
-      await env.DB.prepare(
-        "UPDATE products SET stock = stock - ?, size_stocks = ?, updated_at = datetime('now') WHERE id = ?"
-      ).bind(item.quantity, JSON.stringify(sizeStocks), item.product_id).run();
-    } else {
-      await env.DB.prepare(
-        "UPDATE products SET stock = stock - ?, updated_at = datetime('now') WHERE id = ?"
-      ).bind(item.quantity, item.product_id).run();
-    }
-  }
+  // Note : le stock a déjà été décrémenté lors de createOrder (réservation
+  // optimiste). On ne le redécrémente pas ici pour éviter une double déduction.
 
   await env.DB.prepare("UPDATE orders SET status = 'confirmed' WHERE id = ?").bind(orderId).run();
   const invoice = await sendInvoiceForOrder(env, orderId);
@@ -934,7 +951,8 @@ function buildSimplePdfBase64(lines) {
       'ET',
     ].join('\n');
 
-    objects[contentObjectIds[index]] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
+    const contentBytes = new TextEncoder().encode(content);
+    objects[contentObjectIds[index]] = `<< /Length ${contentBytes.length} >>\nstream\n${content}\nendstream`;
     objects[pageObjectIds[index]] =
       `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`;
   });
@@ -1112,7 +1130,10 @@ function buildRichPdfBase64(contentLines) {
   objects[pageId] = `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontRegularId} 0 R /F2 ${fontBoldId} 0 R >> /XObject << /Im1 ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`;
 
   const stream = contentLines.join('\n');
-  objects[contentId] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+  // IMPORTANT : /Length doit indiquer le nombre d'octets du stream,
+  // pas le nombre de caractères JS (qui peut différer sur du non-ASCII).
+  const streamBytes = new TextEncoder().encode(stream);
+  objects[contentId] = `<< /Length ${streamBytes.length} >>\nstream\n${stream}\nendstream`;
 
   const entries = [];
   let pdf = '%PDF-1.4\n';
@@ -1133,6 +1154,19 @@ function buildRichPdfBase64(contentLines) {
 
 function envSafeValue(fallback) {
   return fallback;
+}
+
+// Détecte si le callback HelloAsso indique un paiement réussi.
+// HelloAsso v5 peut renvoyer ?status=success, ?status=paid, ou ?status=1
+// selon la version du checkout et la configuration.
+function isHelloAssoSuccess(url) {
+  const status = (url.searchParams.get('status') || '').toLowerCase();
+  // Valeurs connues de succès HelloAsso
+  if (['success', 'paid', '1', 'completed'].includes(status)) return true;
+  // Parfois HelloAsso passe un code numérique
+  const code = url.searchParams.get('code');
+  if (code === '1' || code === '200') return true;
+  return false;
 }
 
 function buildCheckoutReturnUrl(baseUrl, orderId, status) {
