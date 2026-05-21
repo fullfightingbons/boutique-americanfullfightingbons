@@ -53,6 +53,29 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
   expires_at TEXT NOT NULL
 );
 
+-- Jetons publics très courts pour finaliser un checkout
+CREATE TABLE IF NOT EXISTS order_access_tokens (
+  order_id    INTEGER PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE,
+  token       TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  created_at  TEXT DEFAULT (datetime('now'))
+);
+
+-- Limitation simple des tentatives de login admin
+CREATE TABLE IF NOT EXISTS admin_login_attempts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip          TEXT NOT NULL,
+  attempted_at TEXT DEFAULT (datetime('now')),
+  success     INTEGER NOT NULL DEFAULT 0
+);
+
+-- Idempotence pour synchronisation de stock inter-services
+CREATE TABLE IF NOT EXISTS inventory_sync_events (
+  reference   TEXT PRIMARY KEY,
+  source      TEXT,
+  created_at  TEXT DEFAULT (datetime('now'))
+);
+
 -- ── Données initiales ────────────────────────────────────────────
 INSERT OR IGNORE INTO products (id, name, category, price, price_old, emoji, badge, stock, description) VALUES
   (1,  'Gants Pro AFFB 10oz',     'gants',       59,   74,  '🥊', 'Exclusif', 15, 'Cuir synthèse haute densité, entraînement & compétition.'),

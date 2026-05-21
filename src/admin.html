@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AFFB — Panel Administrateur</title>
+<title>AMERICAN FULL FIGHTING BONS EN CHABLAIS — Administration Boutique</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
@@ -90,6 +90,8 @@
     display: inline-block; padding: 2px 10px; font-size: 11px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.06em;
   }
+  .badge-pending_payment { background: rgba(234,179,8,0.15); color: var(--yellow); }
+  .badge-payment_failed  { background: rgba(200,24,26,0.15); color: var(--red); }
   .badge-pending   { background: rgba(234,179,8,0.15);  color: var(--yellow); }
   .badge-confirmed { background: rgba(34,197,94,0.15);  color: var(--green); }
   .badge-shipped   { background: rgba(59,130,246,0.15); color: #60a5fa; }
@@ -209,7 +211,7 @@
 <!-- ══ LOGIN ══════════════════════════════════════════════════════ -->
 <div id="loginScreen">
   <div class="login-box">
-    <div class="login-logo"><span>AFF</span>BONS <span style="font-size:14px;font-weight:400;color:var(--gray)">· Admin</span></div>
+    <div class="login-logo">AMERICAN FULL FIGHTING BONS EN CHABLAIS <span style="font-size:14px;font-weight:400;color:var(--gray)">· Admin boutique</span></div>
     <div class="form-group" style="margin-bottom:1.25rem">
       <label>Mot de passe administrateur</label>
       <input id="loginPwd" type="password" class="form-control" placeholder="••••••••" autocomplete="current-password"/>
@@ -224,7 +226,7 @@
 
   <!-- Header -->
   <header class="admin-header">
-    <div class="admin-logo"><span>AFF</span>BONS <span style="font-size:12px;font-weight:400;color:var(--gray)">ADMIN</span></div>
+    <div class="admin-logo">AMERICAN FULL FIGHTING BONS EN CHABLAIS <span style="font-size:12px;font-weight:400;color:var(--gray)">ADMIN</span></div>
     <nav class="admin-nav">
       <button class="admin-nav-btn active" onclick="showTab('dashboard', this)">Dashboard</button>
       <button class="admin-nav-btn" onclick="showTab('products', this)">Produits</button>
@@ -490,7 +492,7 @@
 // ════════════════════════════════════════════════════════════════
 //  État global
 // ════════════════════════════════════════════════════════════════
-let AUTH_TOKEN  = localStorage.getItem('affb_admin_token') || '';
+let AUTH_TOKEN  = sessionStorage.getItem('affb_admin_token') || '';
 let allProducts = [];   // cache local pour la recherche
 let currentImgFile = null;
 
@@ -528,13 +530,38 @@ async function apiForm(path, formData) {
 }
 
 function fmt(n) { return Number(n).toFixed(2) + ' €'; }
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+function safeImageSrc(value) {
+  const src = String(value || '');
+  if (!src) return '';
+  if (src.startsWith('/images/') || src.startsWith('data:image/')) return src;
+  try {
+    const url = new URL(src, window.location.origin);
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
 function fmtDate(s) {
   if (!s) return '–';
   return new Date(s).toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 }
 function statusBadge(s) {
-  const labels = { pending:'En attente', confirmed:'Confirmée', shipped:'Expédiée', delivered:'Livrée', cancelled:'Annulée' };
+  const labels = { pending:'En attente', pending_payment:'Paiement en attente', payment_failed:'Paiement échoué', confirmed:'Confirmée', shipped:'Expédiée', delivered:'Livrée', cancelled:'Annulée' };
   return `<span class="badge badge-${s}">${labels[s] || s}</span>`;
+}
+function statusText(s) {
+  return String(statusBadge(s)).replace(/<[^>]+>/g,'');
 }
 
 function formatSizeStockSummary(rawValue) {
@@ -575,7 +602,7 @@ async function doLogin() {
   const data = await res.json();
   if (res.ok && data.token) {
     AUTH_TOKEN = data.token;
-    localStorage.setItem('affb_admin_token', data.token);
+    sessionStorage.setItem('affb_admin_token', data.token);
     showAdminApp();
   } else {
     document.getElementById('loginError').style.display = 'block';
@@ -589,7 +616,7 @@ async function doLogout() {
     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
   });
   AUTH_TOKEN = '';
-  localStorage.removeItem('affb_admin_token');
+  sessionStorage.removeItem('affb_admin_token');
   location.reload();
 }
 
@@ -605,7 +632,7 @@ function showAdminApp() {
 if (AUTH_TOKEN) {
   // Vérifier si token valide
   fetch('/api/admin/stats', { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } })
-    .then(r => { if (r.ok) showAdminApp(); else { AUTH_TOKEN = ''; localStorage.removeItem('affb_admin_token'); } });
+    .then(r => { if (r.ok) showAdminApp(); else { AUTH_TOKEN = ''; sessionStorage.removeItem('affb_admin_token'); } });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -656,8 +683,8 @@ async function loadDashboard() {
   } else {
     tbody.innerHTML = data.low_stock.map(p => `
       <tr>
-        <td>${p.emoji || '📦'} ${p.name}</td>
-        <td>${capitalize(p.category)}</td>
+        <td>${escapeHtml(p.emoji || '📦')} ${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(capitalize(p.category))}</td>
         <td>${fmt(p.price)}</td>
         <td>
           <span class="low-stock-warn">⚠ ${p.stock} restant(s)</span>
@@ -672,9 +699,9 @@ async function loadDashboard() {
   } else {
     sizeTbody.innerHTML = data.low_size_stock.map(item => `
       <tr>
-        <td><strong>${item.product_name}</strong></td>
-        <td>${capitalize(item.category)}</td>
-        <td>${item.size}</td>
+        <td><strong>${escapeHtml(item.product_name)}</strong></td>
+        <td>${escapeHtml(capitalize(item.category))}</td>
+        <td>${escapeHtml(item.size)}</td>
         <td>${item.stock <= 0 ? `<span class="low-stock-warn">Rupture</span>` : `<span class="low-stock-warn">⚠ ${item.stock}</span>`}</td>
         <td><button class="btn btn-dark btn-sm" onclick="editProduct(${item.product_id})">Modifier</button></td>
       </tr>
@@ -721,16 +748,16 @@ function renderProductsTable(products) {
     return;
   }
   tbody.innerHTML = products.map(p => `
-    <tr data-id="${p.id}" data-name="${(p.name||'').toLowerCase()}" data-cat="${p.category||''}">
+    <tr data-id="${p.id}" data-name="${escapeAttr((p.name||'').toLowerCase())}" data-cat="${escapeAttr(p.category||'')}">
       <td>
         <div class="product-thumb" id="thumb-${p.id}">
-          ${p.image_url
-            ? `<img src="${p.image_url}" alt="${p.name||''}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/><span style="display:none;align-items:center;justify-content:center;width:100%;height:100%">${p.emoji||'📦'}</span>`
-            : `<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:28px">${p.emoji||'📦'}</span>`}
+          ${safeImageSrc(p.image_url)
+            ? `<img src="${escapeAttr(safeImageSrc(p.image_url))}" alt="${escapeAttr(p.name||'')}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/><span style="display:none;align-items:center;justify-content:center;width:100%;height:100%">${escapeHtml(p.emoji||'📦')}</span>`
+            : `<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:28px">${escapeHtml(p.emoji||'📦')}</span>`}
         </div>
       </td>
-      <td><strong>${p.name||''}</strong></td>
-      <td>${capitalize(p.category||'')}</td>
+      <td><strong>${escapeHtml(p.name||'')}</strong></td>
+      <td>${escapeHtml(capitalize(p.category||''))}</td>
       <td>
         <strong>${fmt(p.price)}</strong>
         ${p.price_old ? `<span style="color:var(--gray);text-decoration:line-through;font-size:12px;margin-left:6px">${fmt(p.price_old)}</span>` : ''}
@@ -739,14 +766,14 @@ function renderProductsTable(products) {
         ${p.stock <= 3 ? `<span class="low-stock-warn">⚠ ${p.stock}</span>` : p.stock}
         <div style="font-size:11px;color:${hasCriticalSizeStock(p.size_stocks) ? 'var(--yellow)' : 'var(--gray)'};margin-top:4px">${formatSizeStockSummary(p.size_stocks)}</div>
       </td>
-      <td>${p.badge ? `<span class="badge ${p.badge==='Nouveau'?'badge-confirmed':'badge-shipped'}">${p.badge}</span>` : '–'}</td>
+      <td>${p.badge ? `<span class="badge ${p.badge==='Nouveau'?'badge-confirmed':'badge-shipped'}">${escapeHtml(p.badge)}</span>` : '–'}</td>
       <td style="font-size:12px;color:var(--gray)">
-        ${(() => { try { const s=JSON.parse(p.sizes||'[]'); return s.length ? s.join(', ') : '–'; } catch(e){return '–';} })()}
+        ${(() => { try { const s=JSON.parse(p.sizes||'[]'); return s.length ? escapeHtml(s.join(', ')) : '–'; } catch(e){return '–';} })()}
       </td>
       <td>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn btn-dark btn-sm" onclick="editProduct(${p.id})">✏ Modifier</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id}, '${(p.name||'').replace(/'/g,"\\'")}')">🗑</button>
+          <button class="btn btn-danger btn-sm" onclick='deleteProduct(${p.id}, ${JSON.stringify(String(p.name || ""))})'>🗑</button>
         </div>
       </td>
     </tr>`).join('');
@@ -1040,8 +1067,8 @@ async function loadOrders() {
   tbody.innerHTML = data.map(o => `
     <tr>
       <td><strong>#${String(o.id).padStart(4,'0')}</strong></td>
-      <td>${o.customer_name}</td>
-      <td style="font-size:13px;color:var(--gray)">${o.customer_email}</td>
+      <td>${escapeHtml(o.customer_name)}</td>
+      <td style="font-size:13px;color:var(--gray)">${escapeHtml(o.customer_email)}</td>
       <td><strong>${fmt(o.total)}</strong></td>
       <td>${statusBadge(o.status)}</td>
       <td style="font-size:12px;color:var(--gray)">${fmtDate(o.created_at)}</td>
@@ -1065,28 +1092,28 @@ async function viewOrder(id) {
 
   const rows = data.items.map(i => `
     <tr>
-      <td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">${i.product_name}</td>
+      <td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">${escapeHtml(i.product_name)}</td>
       <td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);text-align:center">${i.quantity}</td>
       <td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);text-align:right">${fmt(i.unit_price)}</td>
       <td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);text-align:right;font-weight:600">${fmt(i.unit_price*i.quantity)}</td>
     </tr>`).join('');
 
-  const statuses = ['pending','confirmed','shipped','delivered','cancelled'];
+  const statuses = ['pending_payment','payment_failed','confirmed','shipped','delivered','cancelled'];
 
   document.getElementById('orderModalContent').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;font-size:14px">
       <div>
         <div style="color:var(--gray);font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Client</div>
-        <div><strong>${data.customer_name}</strong></div>
-        <div style="color:var(--gray)">${data.customer_email}</div>
-        ${data.customer_phone ? `<div style="color:var(--gray)">${data.customer_phone}</div>` : ''}
-        ${data.notes ? `<div style="color:var(--gray);font-style:italic;margin-top:4px">${data.notes}</div>` : ''}
+        <div><strong>${escapeHtml(data.customer_name)}</strong></div>
+        <div style="color:var(--gray)">${escapeHtml(data.customer_email)}</div>
+        ${data.customer_phone ? `<div style="color:var(--gray)">${escapeHtml(data.customer_phone)}</div>` : ''}
+        ${data.notes ? `<div style="color:var(--gray);font-style:italic;margin-top:4px">${escapeHtml(data.notes)}</div>` : ''}
       </div>
       <div>
         <div style="color:var(--gray);font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Commande</div>
         <div>Date : ${fmtDate(data.created_at)}</div>
         <div>Statut : ${statusBadge(data.status)}</div>
-        ${data.helloasso_url ? `<div style="margin-top:6px"><a href="${data.helloasso_url}" target="_blank" style="color:var(--red);font-size:12px">🔗 Lien HelloAsso</a></div>` : ''}
+        ${safeImageSrc(data.helloasso_url) ? `<div style="margin-top:6px"><a href="${escapeAttr(data.helloasso_url)}" target="_blank" rel="noopener noreferrer" style="color:var(--red);font-size:12px">🔗 Lien HelloAsso</a></div>` : ''}
         <div style="margin-top:4px;font-size:12px;color:var(--gray)">Facture : ${data.invoice_sent ? '✓ Envoyée' : 'Non envoyée'}</div>
       </div>
     </div>
@@ -1109,7 +1136,7 @@ async function viewOrder(id) {
 
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <select id="modalStatusSelect" class="form-control" style="width:auto">
-        ${statuses.map(s => `<option value="${s}" ${s===data.status?'selected':''}>${statusBadge(s).replace(/<[^>]+>/g,'')}</option>`).join('')}
+        ${statuses.map(s => `<option value="${s}" ${s===data.status?'selected':''}>${statusText(s)}</option>`).join('')}
       </select>
       <button class="btn btn-red" onclick="updateStatus(${data.id})">Mettre à jour le statut</button>
       <button class="btn btn-green" onclick="createCheckout(${data.id})">💳 HelloAsso</button>
