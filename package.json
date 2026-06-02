@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev":    "wrangler dev",
+    "typecheck": "node --check src/worker.js",
     "check": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
     "db:init": "wrangler d1 execute boutique-americanfullfightingbons --file=schema.sql",
