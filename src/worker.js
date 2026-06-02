@@ -80,6 +80,26 @@ export default {
 
     if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }), request, env);
 
+    if (request.method === 'GET' && pathname === '/api/health') {
+      return cors(json({ ok: true, service: 'boutique-americanfullfightingbons', date: new Date().toISOString() }), request, env);
+    }
+
+    if (request.method === 'GET' && pathname === '/api/version') {
+      return cors(json({ service: 'boutique-americanfullfightingbons', version: '1.0.0' }), request, env);
+    }
+
+    if (request.method === 'GET' && pathname === '/robots.txt') {
+      return cors(new Response('User-agent: *\nAllow: /\n\nSitemap: https://boutique.americanfullfightingbons.fr/sitemap.xml\n', {
+        headers: securityHeaders({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }),
+      }), request, env);
+    }
+
+    if (request.method === 'GET' && pathname === '/sitemap.xml') {
+      return cors(new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>https://boutique.americanfullfightingbons.fr/</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n</urlset>\n', {
+        headers: securityHeaders({ 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }),
+      }), request, env);
+    }
+
     // Route spéciale : images R2 (clé avec sous-chemin ex: products/1-xxx.jpg)
     if (request.method === 'GET' && pathname.startsWith('/images/')) {
       try {
