@@ -110,9 +110,10 @@ export default {
       }
     }
 
+    const routeMethod = request.method === 'HEAD' ? 'GET' : request.method;
     for (const r of routes) {
       const params = matchRoute(r.pathname, pathname);
-      if (params !== null && r.method === request.method) {
+      if (params !== null && r.method === routeMethod) {
         try {
           // Vérification token admin si route protégée
           if (r.adminOnly) {
@@ -120,6 +121,7 @@ export default {
             if (!authResult.ok) return cors(json({ error: 'Non autorisé' }, 401), request, env);
           }
           const res = await r.handler(request, env, params, url);
+          if (request.method === 'HEAD') return cors(new Response(null, res), request, env);
           return cors(res, request, env);
         } catch (err) {
           console.error(err);
