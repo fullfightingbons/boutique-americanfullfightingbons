@@ -1,4 +1,5 @@
 name = "boutique-americanfullfightingbons"
+account_id = "a11cb0253f0870d57b54f6eaaedb439c"
 main = "src/worker.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
