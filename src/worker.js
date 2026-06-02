@@ -161,7 +161,16 @@ function getAllowedOrigins(env, requestUrl) {
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);
-  return new Set([requestUrl.origin, ...configured]);
+  return new Set([
+    requestUrl.origin,
+    'https://americanfullfightingbons.fr',
+    'https://www.americanfullfightingbons.fr',
+    'https://inscription.americanfullfightingbons.fr',
+    'https://calendrier.americanfullfightingbons.fr',
+    'https://boutique.americanfullfightingbons.fr',
+    'https://gestion.americanfullfightingbons.fr',
+    ...configured,
+  ]);
 }
 
 function cors(response, request, env) {
