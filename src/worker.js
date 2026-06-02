@@ -80,12 +80,14 @@ export default {
 
     if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }), request, env);
 
-    if (request.method === 'GET' && pathname === '/api/health') {
-      return cors(json({ ok: true, data: { service: 'boutique-americanfullfightingbons', date: new Date().toISOString() } }), request, env);
+    if ((request.method === 'GET' || request.method === 'HEAD') && pathname === '/api/health') {
+      const res = json({ ok: true, data: { service: 'boutique-americanfullfightingbons', date: new Date().toISOString() } });
+      return cors(request.method === 'HEAD' ? new Response(null, res) : res, request, env);
     }
 
-    if (request.method === 'GET' && pathname === '/api/version') {
-      return cors(json({ ok: true, data: { service: 'boutique-americanfullfightingbons', version: '1.0.0' } }), request, env);
+    if ((request.method === 'GET' || request.method === 'HEAD') && pathname === '/api/version') {
+      const res = json({ ok: true, data: { service: 'boutique-americanfullfightingbons', version: '1.0.0' } });
+      return cors(request.method === 'HEAD' ? new Response(null, res) : res, request, env);
     }
 
     if (request.method === 'GET' && pathname === '/robots.txt') {
