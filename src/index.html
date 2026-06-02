@@ -54,6 +54,7 @@
   .nav-links { display: flex; gap: 2rem; list-style: none; }
   .nav-links a { color: var(--gray); text-decoration: none; font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; transition: color .2s; }
   .nav-links a:hover { color: var(--white); }
+  .nav-links a[aria-current="page"] { color: var(--white); }
   .nav-cart {
     display: flex; align-items: center; gap: 8px;
     background: var(--red); color: var(--white);
@@ -610,7 +611,11 @@
   </div>
   <ul class="nav-links">
     <li><a href="#produits">Produits</a></li>
-    <li><a href="https://www.americanfullfightingbons.fr" target="_blank">Le Club</a></li>
+    <li><a href="https://americanfullfightingbons.fr/">Club</a></li>
+    <li><a href="https://inscription.americanfullfightingbons.fr/">Inscription</a></li>
+    <li><a href="https://calendrier.americanfullfightingbons.fr/">Calendrier</a></li>
+    <li><a href="https://boutique.americanfullfightingbons.fr/" aria-current="page">Boutique</a></li>
+    <li><a href="https://gestion.americanfullfightingbons.fr/">Gestion</a></li>
   </ul>
   <button class="nav-cart" id="cartBtn">
     &#128722; Panier <span id="cartCount" style="background:rgba(0,0,0,0.25);padding:2px 8px;font-size:12px;">0</span>

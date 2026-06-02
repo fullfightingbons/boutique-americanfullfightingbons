@@ -81,11 +81,11 @@ export default {
     if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }), request, env);
 
     if (request.method === 'GET' && pathname === '/api/health') {
-      return cors(json({ ok: true, service: 'boutique-americanfullfightingbons', date: new Date().toISOString() }), request, env);
+      return cors(json({ ok: true, data: { service: 'boutique-americanfullfightingbons', date: new Date().toISOString() } }), request, env);
     }
 
     if (request.method === 'GET' && pathname === '/api/version') {
-      return cors(json({ service: 'boutique-americanfullfightingbons', version: '1.0.0' }), request, env);
+      return cors(json({ ok: true, data: { service: 'boutique-americanfullfightingbons', version: '1.0.0' } }), request, env);
     }
 
     if (request.method === 'GET' && pathname === '/robots.txt') {
