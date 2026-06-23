@@ -231,6 +231,7 @@
       <button class="admin-nav-btn active" onclick="showTab('dashboard', this)">Dashboard</button>
       <button class="admin-nav-btn" onclick="showTab('products', this)">Produits</button>
       <button class="admin-nav-btn" onclick="showTab('orders', this)">Commandes</button>
+      <button class="admin-nav-btn" onclick="showTab('listings', this)">Annonces <span id="listingPendingBadge" style="background:var(--red);color:#fff;font-size:10px;padding:1px 5px;border-radius:2px;display:none"></span></button>
     </nav>
     <div style="display:flex;align-items:center;gap:12px">
       <a href="/" target="_blank" class="btn btn-dark btn-sm">↗ Boutique</a>
@@ -425,6 +426,30 @@
             <th>#</th><th>Client</th><th>Email</th><th>Total</th><th>Statut</th><th>Date</th><th>Actions</th>
           </tr></thead>
           <tbody id="ordersTableBody"><tr><td colspan="7" class="loader">Chargement…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── TAB ANNONCES D'OCCASION ── -->
+    <div id="tab-listings" class="tab">
+      <div class="admin-section-title">
+        Annonces d'occasion
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="listingStatusFilter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px" onchange="loadListings()">
+            <option value="">Tous les statuts</option>
+            <option value="pending" selected>En attente</option>
+            <option value="active">Publiées</option>
+            <option value="sold">Vendues</option>
+            <option value="rejected">Refusées</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Photo</th><th>Titre</th><th>Cat.</th><th>État</th><th>Prix</th><th>Vendeur</th><th>Email</th><th>Statut</th><th>Date</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="listingsTableBody"><tr><td colspan="11" class="loader">Chargement…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -643,6 +668,7 @@ function showTab(name, btn) {
   document.querySelectorAll('.admin-nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`tab-${name}`).classList.add('active');
   if (btn) btn.classList.add('active');
+  if (name === 'listings') loadListings();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1171,6 +1197,81 @@ async function sendInvoice(orderId) {
   if (ok) { showToast('✓ Facture envoyée !', 'success'); loadOrders(); }
   else showToast('Erreur Brevo : ' + (data.error || data.detail || 'inconnue'), 'error');
 }
+
+// ── Annonces d'occasion ────────────────────────────────────────
+
+const LISTING_CONDITION_LABELS = { neuf: 'Neuf', tres_bon: 'Très bon', bon: 'Bon', correct: 'Correct' };
+const LISTING_STATUS_LABELS = { pending: 'En attente', active: 'Publiée', sold: 'Vendue', rejected: 'Refusée' };
+const LISTING_STATUS_COLORS = { pending: 'var(--yellow)', active: '#4ade80', sold: 'var(--gray)', rejected: 'var(--red)' };
+
+async function loadListings() {
+  const status = document.getElementById('listingStatusFilter').value;
+  const url = '/api/admin/listings' + (status ? '?status=' + status : '');
+  const tbody = document.getElementById('listingsTableBody');
+  tbody.innerHTML = '<tr><td colspan="11" class="loader">Chargement…</td></tr>';
+  const { ok, data } = await api('GET', url);
+  if (!ok) { tbody.innerHTML = '<tr><td colspan="11" style="color:var(--red);padding:1rem">Erreur de chargement</td></tr>'; return; }
+  const items = Array.isArray(data) ? data : [];
+
+  // Badge en attente dans le menu
+  const pending = items.filter(i => i.status === 'pending').length;
+  const badge = document.getElementById('listingPendingBadge');
+  if (badge) { badge.textContent = pending; badge.style.display = pending ? 'inline' : 'none'; }
+
+  if (!items.length) { tbody.innerHTML = '<tr><td colspan="11" style="color:var(--gray);padding:1rem">Aucune annonce.</td></tr>'; return; }
+
+  tbody.innerHTML = items.map(l => {
+    const imgHtml = l.image_url
+      ? `<img src="${escapeAttr(l.image_url)}" style="width:48px;height:48px;object-fit:cover;display:block;border:1px solid rgba(255,255,255,.08)" />`
+      : '<span style="color:var(--gray);font-size:20px">📷</span>';
+    const statusColor = LISTING_STATUS_COLORS[l.status] || 'var(--gray)';
+    const statusLabel = LISTING_STATUS_LABELS[l.status] || l.status;
+    const condLabel   = LISTING_CONDITION_LABELS[l.condition] || l.condition;
+    return `<tr>
+      <td>${l.id}</td>
+      <td>${imgHtml}</td>
+      <td style="max-width:160px"><div style="font-weight:600;color:var(--white)">${escapeHtml(l.title)}</div><div style="font-size:11px;color:var(--gray);margin-top:2px">${escapeHtml(l.description||'').slice(0,60)}</div></td>
+      <td>${escapeHtml(l.category)}</td>
+      <td>${condLabel}</td>
+      <td style="font-weight:700;color:var(--white)">${Number(l.price).toFixed(2)} €</td>
+      <td>${escapeHtml(l.contact_name)}</td>
+      <td><a href="mailto:${escapeAttr(l.contact_email)}" style="color:var(--red);font-size:12px">${escapeHtml(l.contact_email)}</a>${l.contact_phone ? `<div style="font-size:11px;color:var(--gray)">${escapeHtml(l.contact_phone)}</div>` : ''}</td>
+      <td><span style="color:${statusColor};font-weight:600;font-size:12px">${statusLabel}</span></td>
+      <td style="font-size:12px;color:var(--gray)">${fmtDate(l.created_at)}</td>
+      <td>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${l.status !== 'active'   ? `<button class="btn btn-green btn-sm" onclick="updateListingStatus(${l.id},'active')">✓ Publier</button>` : ''}
+          ${l.status !== 'sold'     ? `<button class="btn btn-dark btn-sm" onclick="updateListingStatus(${l.id},'sold')">Vendu</button>` : ''}
+          ${l.status !== 'rejected' ? `<button class="btn btn-danger btn-sm" onclick="updateListingStatus(${l.id},'rejected')">✕ Refuser</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="deleteListing(${l.id})" style="opacity:.7">🗑</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function updateListingStatus(id, status) {
+  const { ok } = await api('PATCH', `/api/admin/listings/${id}`, { status });
+  if (ok) { showToast('✓ Annonce mise à jour', 'success'); loadListings(); }
+  else showToast('Erreur', 'error');
+}
+
+async function deleteListing(id) {
+  if (!confirm('Supprimer définitivement cette annonce ?')) return;
+  const { ok } = await api('DELETE', `/api/admin/listings/${id}`);
+  if (ok) { showToast('✓ Annonce supprimée', 'success'); loadListings(); }
+  else showToast('Erreur lors de la suppression', 'error');
+}
+
+// Charger le badge annonces en attente au démarrage
+(async function() {
+  const { ok, data } = await api('GET', '/api/admin/listings?status=pending');
+  if (ok) {
+    const pending = Array.isArray(data) ? data.length : 0;
+    const badge = document.getElementById('listingPendingBadge');
+    if (badge) { badge.textContent = pending; badge.style.display = pending ? 'inline' : 'none'; }
+  }
+})();
 </script>
 </body>
 </html>
