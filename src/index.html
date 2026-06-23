@@ -22,6 +22,18 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   :root {
     --red: #C8181A;
     --red-dark: #8B0E10;
@@ -673,6 +685,7 @@
     <button class="filter-btn" onclick="filterProducts('accessoires', this)">Accessoires</button>
   </div>
   <div class="catalog-toolbar">
+    <label for="productSearchInput" class="sr-only">Rechercher un produit ou une taille</label>
     <input id="productSearchInput" class="catalog-search" type="search" placeholder="Rechercher un produit, une taille…" oninput="setProductSearch(this.value)"/>
     <div class="size-filter-row" id="sizeFilterRow" hidden>
       <button class="size-pill active" data-size-filter="all" onclick="setSizeFilter('all', this)">Toutes les tailles</button>
@@ -1406,7 +1419,7 @@
       </div>
       <div class="stock-info" id="productModalStock"></div>
       <div style="margin-top:1rem">
-  <div class="size-selector-label">Quantité</div>
+  <div class="size-selector-label" id="productQtyLabel">Quantité</div>
   <div style="display:flex;align-items:center;gap:10px">
     <button type="button" onclick="changeQty(-1)" style="width:40px;height:40px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);font-size:20px;cursor:pointer">−</button>
     <input
@@ -1414,6 +1427,7 @@
       type="number"
       min="1"
       value="1"
+      aria-labelledby="productQtyLabel"
       style="width:70px;height:40px;text-align:center;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);font-size:16px"
     />
     <button type="button" onclick="changeQty(1)" style="width:40px;height:40px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);font-size:20px;cursor:pointer">+</button>
@@ -1432,10 +1446,14 @@
     <div class="section-label" style="margin-bottom:.5rem">Finaliser</div>
     <h2 style="font-family:var(--font-display);font-size:28px;text-transform:uppercase;color:var(--white);margin-bottom:1.5rem">Votre commande</h2>
     <div id="modalCartLines" style="margin-bottom:1.5rem;font-size:14px;color:var(--gray)"></div>
-    <input id="oName"  type="text"  placeholder="Nom complet *"      required style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);margin-bottom:.75rem;font-family:var(--font-body);font-size:14px">
-    <input id="oEmail" type="email" placeholder="Email *"            required style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);margin-bottom:.75rem;font-family:var(--font-body);font-size:14px">
-    <input id="oPhone" type="tel"   placeholder="Téléphone"                   style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);margin-bottom:.75rem;font-family:var(--font-body);font-size:14px">
-    <textarea id="oNotes" placeholder="Notes (taille, couleur…)"              style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);margin-bottom:1.25rem;font-family:var(--font-body);font-size:14px;resize:vertical;min-height:70px"></textarea>
+    <label for="oName" class="sr-only">Nom complet</label>
+    <input id="oName"  name="name"  type="text"  autocomplete="name"  placeholder="Nom complet *"      required style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);margin-bottom:.75rem;font-family:var(--font-body);font-size:14px">
+    <label for="oEmail" class="sr-only">Email</label>
+    <input id="oEmail" name="email" type="email" autocomplete="email" placeholder="Email *"            required style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);margin-bottom:.75rem;font-family:var(--font-body);font-size:14px">
+    <label for="oPhone" class="sr-only">Téléphone</label>
+    <input id="oPhone" name="tel"   type="tel"   autocomplete="tel"   placeholder="Téléphone"                   style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);margin-bottom:.75rem;font-family:var(--font-body);font-size:14px">
+    <label for="oNotes" class="sr-only">Notes (taille, couleur…)</label>
+    <textarea id="oNotes" name="notes" placeholder="Notes (taille, couleur…)"              style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);margin-bottom:1.25rem;font-family:var(--font-body);font-size:14px;resize:vertical;min-height:70px"></textarea>
     <button id="submitOrderBtn" onclick="submitOrder(event)" style="width:100%;padding:14px;background:var(--red);color:var(--white);font-family:var(--font-display);font-weight:700;font-size:16px;letter-spacing:.08em;text-transform:uppercase;border:none;cursor:pointer">
       Confirmer la commande
     </button>
