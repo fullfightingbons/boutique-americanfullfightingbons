@@ -828,14 +828,22 @@ async function updateOrderStatus(request, env, params) {
   if (!allowed.includes(status)) {
     return json({ error: `Statut invalide. Valeurs acceptées : ${allowed.join(', ')}` }, 400);
   }
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
   if (current.status === 'pending_payment' && (status === 'cancelled' || status === 'payment_failed')) {
     await releaseReservedStockForOrder(env, params.id);
     if (status === 'cancelled') {
       await env.DB.prepare("UPDATE orders SET status = 'cancelled' WHERE id = ?").bind(params.id).run();
+      await env.DB.prepare(
+        'INSERT INTO order_status_history (order_id, old_status, new_status, changed_at, changed_by) VALUES (?, ?, ?, ?, ?)'
+      ).bind(params.id, current.status, 'cancelled', now, 'admin').run();
     }
     return json({ success: true, order_id: Number(params.id), status });
   }
   await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, params.id).run();
+  await env.DB.prepare(
+    'INSERT INTO order_status_history (order_id, old_status, new_status, changed_at, changed_by) VALUES (?, ?, ?, ?, ?)'
+  ).bind(params.id, current.status, status, now, 'admin').run();
   return json({ success: true, order_id: Number(params.id), status });
 }
 
@@ -1039,7 +1047,7 @@ async function checkoutCallback(request, env, _params, url) {
     const intent = await getHelloAssoCheckoutIntent(env, checkoutIntentId);
     const paymentState = buildHelloAssoPaymentState(intent, order.total);
     if (paymentState.paid) {
-      await finalizePaidOrder(env, callbackInfo.orderId);
+      await finalizePaidOrder(env, callbackInfo.orderId, intent);
       return Response.redirect(
         buildCheckoutReturnUrl(env.HELLOASSO_RETURN_URL || '/', callbackInfo.orderId, 'success'),
         302
@@ -1119,21 +1127,69 @@ async function sendInvoiceForOrder(env, orderId) {
     throw new Error(`Brevo error ${res.status}: ${err}`);
   }
 
-  await env.DB.prepare('UPDATE orders SET invoice_sent = 1 WHERE id = ?').bind(orderId).run();
+  const invoiceSentAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  await env.DB.prepare(
+    'UPDATE orders SET invoice_sent = 1, invoice_sent_at = ? WHERE id = ?'
+  ).bind(invoiceSentAt, orderId).run();
   return { attempted: true, sent: true, recipients };
 }
 
-async function finalizePaidOrder(env, orderId) {
+async function finalizePaidOrder(env, orderId, helloAssoIntent) {
   const order = await env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
   if (!order) throw new Error('Commande introuvable');
   if (order.status === 'confirmed' && order.invoice_sent) {
     return { confirmed: true, invoice_sent: true, skipped: true };
   }
-  await env.DB.prepare("UPDATE orders SET status = 'confirmed' WHERE id = ?").bind(orderId).run();
+
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+  // Mettre à jour le statut + paid_at
+  await env.DB.prepare(
+    "UPDATE orders SET status = 'confirmed', paid_at = ? WHERE id = ?"
+  ).bind(now, orderId).run();
+
+  // Historique de transition
+  await env.DB.prepare(
+    'INSERT INTO order_status_history (order_id, old_status, new_status, changed_at, changed_by) VALUES (?, ?, ?, ?, ?)'
+  ).bind(orderId, order.status, 'confirmed', now, 'helloasso').run();
+
+  // Sauvegarder les données de paiement HelloAsso si disponibles
+  if (helloAssoIntent) {
+    const order2 = await env.DB.prepare('SELECT order_id FROM payments WHERE order_id = ?').bind(orderId).first();
+    if (!order2) {
+      const payment = extractHelloAssoPayment(helloAssoIntent);
+      await env.DB.prepare(
+        'INSERT INTO payments (order_id, helloasso_payment_id, amount, payer_name, payer_email, paid_at, raw_payload) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        orderId,
+        payment.id || null,
+        payment.amount || null,
+        payment.payerName || null,
+        payment.payerEmail || null,
+        now,
+        JSON.stringify(helloAssoIntent)
+      ).run();
+    }
+  }
+
   await ensureSupportTables(env);
   await env.DB.prepare('DELETE FROM order_access_tokens WHERE order_id = ?').bind(orderId).run();
   const invoice = await sendInvoiceForOrder(env, orderId);
   return { confirmed: true, invoice_sent: invoice.sent };
+}
+
+// Extrait les infos de paiement du payload HelloAsso (checkout intent)
+function extractHelloAssoPayment(intent) {
+  const order = intent?.order;
+  const payer = order?.payer || intent?.payer || {};
+  const payments = order?.payments || intent?.payments || [];
+  const firstPayment = Array.isArray(payments) ? payments[0] : null;
+  return {
+    id:         firstPayment?.id || intent?.id || null,
+    amount:     firstPayment?.amount != null ? firstPayment.amount / 100 : (order?.amount != null ? order.amount / 100 : null),
+    payerName:  [payer.firstName, payer.lastName].filter(Boolean).join(' ') || null,
+    payerEmail: payer.email || order?.payer?.email || null,
+  };
 }
 
 async function resolveCheckoutCallbackOrder(env, url) {
