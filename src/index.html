@@ -622,6 +622,159 @@
     color: var(--gold-light);
     font-family: var(--font-display);
   }
+
+  /* ── ANNONCES D'OCCASION ──────────────────────────────────── */
+  .listings-section {
+    padding: 5rem 2.5rem 4rem;
+    background: var(--dark3);
+    border-top: 1px solid rgba(200,24,26,0.12);
+  }
+  .listings-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2.5rem;
+  }
+  .listings-eyebrow {
+    font-family: var(--font-display); font-size: 12px; font-weight: 700;
+    letter-spacing: 0.15em; text-transform: uppercase; color: var(--gold);
+    margin-bottom: .4rem;
+  }
+  .listings-title {
+    font-family: var(--font-display); font-size: clamp(28px,4vw,42px);
+    font-weight: 900; text-transform: uppercase; color: var(--white); line-height: 1.1;
+    margin-bottom: .6rem;
+  }
+  .listings-subtitle { color: var(--gray); font-size: 14px; max-width: 520px; }
+
+  .listing-filters {
+    display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 2rem;
+  }
+  .listing-filter-btn {
+    background: var(--dark4); border: 1px solid rgba(255,255,255,0.08);
+    color: var(--gray); padding: 6px 16px; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all .2s; font-family: var(--font-body);
+  }
+  .listing-filter-btn:hover { color: var(--white); border-color: rgba(255,255,255,0.2); }
+  .listing-filter-btn.active { background: var(--red); border-color: var(--red); color: var(--white); }
+
+  .listing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1.25rem;
+  }
+  .listing-loading { color: var(--gray); font-size: 14px; }
+  .listing-empty   { color: var(--gray); font-size: 14px; grid-column: 1/-1; text-align: center; padding: 3rem 0; }
+
+  .listing-card {
+    background: var(--dark4); border: 1px solid rgba(255,255,255,0.06);
+    cursor: pointer; transition: border-color .2s, transform .15s;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .listing-card:hover { border-color: rgba(200,24,26,0.4); transform: translateY(-2px); }
+  .listing-card-img {
+    width: 100%; aspect-ratio: 4/3; object-fit: cover;
+    background: var(--dark2); display: flex; align-items: center; justify-content: center;
+    font-size: 3rem; color: rgba(255,255,255,0.1);
+  }
+  .listing-card-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .listing-card-body { padding: 1rem; flex: 1; display: flex; flex-direction: column; gap: .4rem; }
+  .listing-card-cat {
+    font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--gold);
+  }
+  .listing-card-title {
+    font-family: var(--font-display); font-size: 17px; font-weight: 700;
+    color: var(--white); line-height: 1.2;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .listing-card-cond { font-size: 12px; color: var(--gray); }
+  .listing-card-price {
+    font-family: var(--font-display); font-size: 22px; font-weight: 900;
+    color: var(--white); margin-top: auto; padding-top: .5rem;
+  }
+  .listing-card-seller { font-size: 12px; color: var(--gray); }
+
+  /* Modals annonces */
+  .listing-modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.85); backdrop-filter: blur(4px);
+    align-items: center; justify-content: center; padding: 1.5rem;
+  }
+  .listing-modal-overlay.open { display: flex; }
+  .listing-modal {
+    background: var(--dark3); border: 1px solid rgba(255,255,255,0.1);
+    max-width: 540px; width: 100%; max-height: 90vh; overflow-y: auto;
+    padding: 2.5rem; position: relative;
+  }
+  .listing-modal-close {
+    position: absolute; top: 1rem; right: 1rem;
+    background: none; border: none; color: var(--gray); font-size: 18px; cursor: pointer;
+    padding: 4px 8px; transition: color .2s;
+  }
+  .listing-modal-close:hover { color: var(--white); }
+  .listing-modal-title {
+    font-family: var(--font-display); font-size: 24px; font-weight: 900;
+    text-transform: uppercase; color: var(--white); margin-bottom: .5rem;
+  }
+  .listing-modal-intro { color: var(--gray); font-size: 13px; margin-bottom: 1.5rem; line-height: 1.6; }
+
+  .listing-form-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;
+  }
+  .listing-form-grid label {
+    display: flex; flex-direction: column; gap: .4rem;
+    font-size: 13px; font-weight: 500; color: var(--gray);
+  }
+  .listing-form-grid input,
+  .listing-form-grid select,
+  .listing-form-grid textarea {
+    background: var(--dark2); border: 1px solid rgba(255,255,255,0.1);
+    color: var(--white); padding: 9px 12px; font-size: 14px; font-family: var(--font-body);
+    outline: none; transition: border-color .2s;
+  }
+  .listing-form-grid input:focus,
+  .listing-form-grid select:focus,
+  .listing-form-grid textarea:focus { border-color: var(--red); }
+  .listing-form-grid select option { background: var(--dark2); }
+  .listing-form-full { grid-column: 1 / -1; }
+  .listing-form-hint { font-size: 11px; color: var(--gray); margin-top: 2px; }
+  .listing-form-error {
+    background: rgba(200,24,26,0.12); border: 1px solid rgba(200,24,26,0.3);
+    color: #f87171; padding: 10px 14px; font-size: 13px; margin-bottom: 1rem;
+  }
+  .listing-form-submit { width: 100%; justify-content: center; text-align: center; margin-top: .5rem; }
+
+  /* Modal détail */
+  .listing-detail-modal { max-width: 600px; padding: 0; overflow: hidden; }
+  .listing-detail-img {
+    width: 100%; aspect-ratio: 16/9; background: var(--dark2);
+    display: flex; align-items: center; justify-content: center; font-size: 4rem;
+    color: rgba(255,255,255,0.1);
+  }
+  .listing-detail-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .listing-detail-body { padding: 1.5rem 2rem 2rem; }
+  .listing-detail-cat {
+    font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--gold); margin-bottom: .4rem;
+  }
+  .listing-detail-title {
+    font-family: var(--font-display); font-size: 26px; font-weight: 900;
+    color: var(--white); margin-bottom: .5rem;
+  }
+  .listing-detail-price {
+    font-family: var(--font-display); font-size: 30px; font-weight: 900;
+    color: var(--white); margin-bottom: .3rem;
+  }
+  .listing-detail-cond { font-size: 13px; color: var(--gray); margin-bottom: .8rem; }
+  .listing-detail-desc { font-size: 14px; color: var(--light); line-height: 1.6; margin-bottom: 1.2rem; white-space: pre-wrap; }
+  .listing-detail-contact { font-size: 14px; color: var(--gray); line-height: 1.8; }
+  .listing-contact-btn { display: inline-block; margin-top: .8rem; text-decoration: none; }
+
+  @media (max-width: 640px) {
+    .listings-section { padding: 3rem 1.25rem 2rem; }
+    .listing-form-grid { grid-template-columns: 1fr; }
+    .listing-detail-body { padding: 1.25rem; }
+    .listing-modal { padding: 1.5rem; }
+  }
 </style>
 </head>
 <body>
@@ -635,6 +788,7 @@
   </div>
   <ul class="nav-links">
     <li><a href="#produits">Produits</a></li>
+    <li><a href="#occasion">Occasion</a></li>
     <li><a href="https://americanfullfightingbons.fr/">Club</a></li>
     <li><a href="https://inscription.americanfullfightingbons.fr/">Inscription</a></li>
     <li><a href="https://calendrier.americanfullfightingbons.fr/">Calendrier</a></li>
@@ -706,6 +860,103 @@
   </div>
 </section>
 
+<!-- ── ANNONCES D'OCCASION ──────────────────────────────────── -->
+<section class="listings-section" id="occasion">
+  <div class="listings-header">
+    <div class="listings-header-text">
+      <div class="listings-eyebrow">Entre adhérents</div>
+      <h2 class="listings-title">Matériel d'occasion</h2>
+      <p class="listings-subtitle">Des anciens membres revendent leur matériel directement. Contactez le vendeur par email pour conclure la vente.</p>
+    </div>
+    <button class="btn-primary" onclick="openListingForm()">+ Déposer une annonce</button>
+  </div>
+
+  <!-- Filtres catégories annonces -->
+  <div class="listing-filters">
+    <button class="listing-filter-btn active" data-cat="tous" onclick="setListingCat('tous',this)">Tout</button>
+    <button class="listing-filter-btn" data-cat="gants" onclick="setListingCat('gants',this)">🥊 Gants</button>
+    <button class="listing-filter-btn" data-cat="protections" onclick="setListingCat('protections',this)">🛡️ Protections</button>
+    <button class="listing-filter-btn" data-cat="tenues" onclick="setListingCat('tenues',this)">👕 Tenues</button>
+    <button class="listing-filter-btn" data-cat="accessoires" onclick="setListingCat('accessoires',this)">🎽 Accessoires</button>
+    <button class="listing-filter-btn" data-cat="divers" onclick="setListingCat('divers',this)">📦 Divers</button>
+  </div>
+
+  <div class="listing-grid" id="listingGrid">
+    <div class="listing-loading">Chargement des annonces…</div>
+  </div>
+</section>
+
+<!-- Modal dépôt d'annonce -->
+<div id="listingFormModal" class="listing-modal-overlay" onclick="if(event.target===this)closeListingForm()">
+  <div class="listing-modal">
+    <button class="listing-modal-close" onclick="closeListingForm()">✕</button>
+    <h3 class="listing-modal-title">Déposer une annonce</h3>
+    <p class="listing-modal-intro">Votre annonce sera publiée après validation par le club. Renseignez votre email : les acheteurs intéressés vous contacteront directement.</p>
+    <div class="listing-form-grid">
+      <label>Titre de l'annonce *
+        <input id="lf_title" type="text" maxlength="160" placeholder="Ex : Gants Venum 10oz – très bon état" />
+      </label>
+      <label>Prix demandé (€) *
+        <input id="lf_price" type="number" min="1" step="0.01" placeholder="Ex : 30" />
+      </label>
+      <label>Catégorie *
+        <select id="lf_category">
+          <option value="gants">🥊 Gants</option>
+          <option value="protections">🛡️ Protections</option>
+          <option value="tenues">👕 Tenues</option>
+          <option value="accessoires">🎽 Accessoires</option>
+          <option value="divers">📦 Divers</option>
+        </select>
+      </label>
+      <label>État *
+        <select id="lf_condition">
+          <option value="neuf">Neuf / jamais utilisé</option>
+          <option value="tres_bon">Très bon état</option>
+          <option value="bon" selected>Bon état</option>
+          <option value="correct">État correct</option>
+        </select>
+      </label>
+      <label class="listing-form-full">Description (optionnel)
+        <textarea id="lf_description" rows="3" maxlength="1000" placeholder="Marque, taille, raison de la vente…"></textarea>
+      </label>
+      <label>Votre prénom &amp; nom *
+        <input id="lf_name" type="text" maxlength="100" placeholder="Marie Dupont" />
+      </label>
+      <label>Votre email *
+        <input id="lf_email" type="email" placeholder="marie@exemple.fr" />
+      </label>
+      <label>Téléphone (optionnel)
+        <input id="lf_phone" type="tel" placeholder="06 12 34 56 78" />
+      </label>
+      <label class="listing-form-full">Photo de l'article (optionnel)
+        <input id="lf_image" type="file" accept="image/jpeg,image/png,image/webp" />
+        <span class="listing-form-hint">JPG / PNG / WebP · max 5 Mo</span>
+      </label>
+    </div>
+    <div id="listingFormError" class="listing-form-error" hidden></div>
+    <button class="btn-primary listing-form-submit" id="listingSubmitBtn" onclick="submitListing()">Envoyer mon annonce</button>
+  </div>
+</div>
+
+<!-- Modal détail annonce -->
+<div id="listingDetailModal" class="listing-modal-overlay" onclick="if(event.target===this)closeListingDetail()">
+  <div class="listing-modal listing-detail-modal">
+    <button class="listing-modal-close" onclick="closeListingDetail()">✕</button>
+    <div id="listingDetailImg" class="listing-detail-img"></div>
+    <div class="listing-detail-body">
+      <div id="listingDetailCat" class="listing-detail-cat"></div>
+      <h3 id="listingDetailTitle" class="listing-detail-title"></h3>
+      <div id="listingDetailPrice" class="listing-detail-price"></div>
+      <div id="listingDetailCondition" class="listing-detail-cond"></div>
+      <p id="listingDetailDesc" class="listing-detail-desc"></p>
+      <div class="listing-detail-contact">
+        <strong>Vendeur :</strong> <span id="listingDetailSeller"></span><br/>
+        <a id="listingDetailEmailBtn" href="#" class="btn-primary listing-contact-btn">📧 Contacter le vendeur</a>
+      </div>
+    </div>
+  </div>
+</div>
+
 <section class="reassurance" id="infos">
   <div class="reassurance-grid">
     <div class="reassurance-card">
@@ -735,6 +986,7 @@
       <ul class="footer-links">
         <li><a href="#accueil">Accueil</a></li>
         <li><a href="#produits">Tous les produits</a></li>
+        <li><a href="#occasion">Matériel d'occasion</a></li>
         <li><a href="#infos">Infos boutique</a></li>
       </ul>
     </div>
@@ -1490,5 +1742,195 @@
     </div>
   </div>
 </div>
+
+<script>
+// ── Annonces d'occasion ────────────────────────────────────────
+(function() {
+  var currentListingCat = 'tous';
+  var listings = [];
+
+  var CONDITION_LABELS = {
+    neuf: 'Neuf', tres_bon: 'Très bon état', bon: 'Bon état', correct: 'État correct'
+  };
+  var CAT_EMOJI = {
+    gants: '🥊', protections: '🛡️', tenues: '👕', accessoires: '🎽', divers: '📦'
+  };
+
+  function fetchListings(cat) {
+    var url = '/api/listings' + (cat && cat !== 'tous' ? '?category=' + cat : '');
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        listings = Array.isArray(data) ? data : [];
+        renderListings(listings);
+      })
+      .catch(function() {
+        document.getElementById('listingGrid').innerHTML =
+          '<p class="listing-empty">Impossible de charger les annonces.</p>';
+      });
+  }
+
+  function renderListings(items) {
+    var grid = document.getElementById('listingGrid');
+    if (!items.length) {
+      grid.innerHTML = '<p class="listing-empty">Aucune annonce pour le moment.<br>Soyez le premier à déposer la vôtre !</p>';
+      return;
+    }
+    grid.innerHTML = items.map(function(l) {
+      var emoji = CAT_EMOJI[l.category] || '📦';
+      var imgHtml = l.image_url
+        ? '<div class="listing-card-img"><img src="' + escapeHtmlAttr(l.image_url) + '" alt="' + escapeHtmlAttr(l.title) + '" loading="lazy"/></div>'
+        : '<div class="listing-card-img">' + emoji + '</div>';
+      return '<div class="listing-card" onclick="openListingDetail(' + l.id + ')">' +
+        imgHtml +
+        '<div class="listing-card-body">' +
+          '<div class="listing-card-cat">' + emoji + ' ' + escapeHtml(l.category) + '</div>' +
+          '<div class="listing-card-title">' + escapeHtml(l.title) + '</div>' +
+          '<div class="listing-card-cond">' + (CONDITION_LABELS[l.condition] || l.condition) + '</div>' +
+          '<div class="listing-card-price">' + Number(l.price).toFixed(2) + ' €</div>' +
+          '<div class="listing-card-seller">Vendeur : ' + escapeHtml(l.contact_name) + '</div>' +
+        '</div></div>';
+    }).join('');
+  }
+
+  window.setListingCat = function(cat, btn) {
+    currentListingCat = cat;
+    document.querySelectorAll('.listing-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    fetchListings(cat);
+  };
+
+  window.openListingForm = function() {
+    document.getElementById('listingFormModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  };
+  window.closeListingForm = function() {
+    document.getElementById('listingFormModal').classList.remove('open');
+    document.body.style.overflow = '';
+  };
+
+  window.submitListing = function() {
+    var btn = document.getElementById('listingSubmitBtn');
+    var errEl = document.getElementById('listingFormError');
+    errEl.hidden = true;
+
+    var title   = (document.getElementById('lf_title').value || '').trim();
+    var price   = parseFloat(document.getElementById('lf_price').value);
+    var cat     = document.getElementById('lf_category').value;
+    var cond    = document.getElementById('lf_condition').value;
+    var desc    = (document.getElementById('lf_description').value || '').trim();
+    var name    = (document.getElementById('lf_name').value || '').trim();
+    var email   = (document.getElementById('lf_email').value || '').trim();
+    var phone   = (document.getElementById('lf_phone').value || '').trim();
+    var imgFile = document.getElementById('lf_image').files[0];
+
+    if (!title)              { showListingErr('Le titre est obligatoire.'); return; }
+    if (!price || price <= 0){ showListingErr('Indiquez un prix valide.'); return; }
+    if (!name)               { showListingErr('Votre nom est obligatoire.'); return; }
+    if (!email || !email.includes('@')) { showListingErr('Email invalide.'); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Envoi…';
+
+    var payload = { title, price, category: cat, condition: cond, contact_name: name, contact_email: email };
+    if (desc)  payload.description   = desc;
+    if (phone) payload.contact_phone = phone;
+
+    fetch('/api/listings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.id) throw new Error(data.error || 'Erreur serveur');
+      var listingId = data.id;
+      if (imgFile) {
+        var fd = new FormData();
+        fd.append('image', imgFile);
+        return fetch('/api/listings/' + listingId + '/image', { method: 'POST', body: fd })
+          .then(function() { return data; });
+      }
+      return data;
+    })
+    .then(function() {
+      btn.disabled = false;
+      btn.textContent = 'Envoyer mon annonce';
+      closeListingForm();
+      resetListingForm();
+      showListingSuccess();
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'Envoyer mon annonce';
+      showListingErr(err.message || 'Erreur lors de l\'envoi.');
+    });
+  };
+
+  function showListingErr(msg) {
+    var el = document.getElementById('listingFormError');
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
+  function showListingSuccess() {
+    // Réutiliser le toast existant
+    var t = document.getElementById('toast');
+    if (t) {
+      t.textContent = '✓ Annonce envoyée — en attente de validation par le club.';
+      t.style.opacity = '1';
+      t.style.transform = 'translateY(0)';
+      setTimeout(function() { t.style.opacity=''; t.style.transform=''; }, 5000);
+    }
+  }
+
+  function resetListingForm() {
+    ['lf_title','lf_price','lf_description','lf_name','lf_email','lf_phone'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    var imgInput = document.getElementById('lf_image');
+    if (imgInput) imgInput.value = '';
+    document.getElementById('listingFormError').hidden = true;
+  }
+
+  // Détail annonce
+  window.openListingDetail = function(id) {
+    var l = listings.find(function(x) { return x.id === id; });
+    if (!l) return;
+    var emoji = CAT_EMOJI[l.category] || '📦';
+    var imgEl = document.getElementById('listingDetailImg');
+    if (l.image_url) {
+      imgEl.innerHTML = '<img src="' + escapeHtmlAttr(l.image_url) + '" alt="' + escapeHtmlAttr(l.title) + '"/>';
+    } else {
+      imgEl.innerHTML = emoji;
+    }
+    document.getElementById('listingDetailCat').textContent    = emoji + ' ' + l.category;
+    document.getElementById('listingDetailTitle').textContent  = l.title;
+    document.getElementById('listingDetailPrice').textContent  = Number(l.price).toFixed(2) + ' €';
+    document.getElementById('listingDetailCondition').textContent = CONDITION_LABELS[l.condition] || l.condition;
+    document.getElementById('listingDetailDesc').textContent   = l.description || '';
+    document.getElementById('listingDetailSeller').textContent = l.contact_name;
+    // L'email est volontairement absent de la réponse publique GET /api/listings/:id
+    // On propose de contacter via le formulaire contact du club
+    var emailBtn = document.getElementById('listingDetailEmailBtn');
+    emailBtn.href = 'mailto:fullfightingbons@gmail.com?subject=' +
+      encodeURIComponent('Annonce #' + l.id + ' – ' + l.title) +
+      '&body=' + encodeURIComponent('Bonjour,\n\nJe suis intéressé(e) par l\'annonce #' + l.id + ' : ' + l.title + ' (' + Number(l.price).toFixed(2) + ' €).\n\nMerci de me mettre en contact avec le vendeur.\n\nCordialement.');
+    document.getElementById('listingDetailModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  };
+  window.closeListingDetail = function() {
+    document.getElementById('listingDetailModal').classList.remove('open');
+    document.body.style.overflow = '';
+  };
+
+  function escapeHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function escapeHtmlAttr(s) { return String(s||'').replace(/"/g,'&quot;'); }
+
+  // Charger les annonces au démarrage
+  fetchListings('tous');
+})();
+</script>
 </body>
 </html>

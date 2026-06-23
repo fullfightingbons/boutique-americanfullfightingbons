@@ -71,6 +71,15 @@ const routes = [
 
   // ── Synchronisation interne de stock ──────────────────────────
   route('POST',  '/api/internal/stock/apply',  applyExternalStockSync),
+
+  // ── Annonces d'occasion ────────────────────────────────────────
+  route('GET',   '/api/listings',              getListings),
+  route('GET',   '/api/listings/:id',          getListing),
+  route('POST',  '/api/listings',              createListing),       // soumission publique
+  route('POST',  '/api/listings/:id/image',    uploadListingImage),  // upload image annonce
+  route('GET',   '/api/admin/listings',        getAdminListings,     true),
+  route('PATCH', '/api/admin/listings/:id',    updateListingStatus,  true),
+  route('DELETE','/api/admin/listings/:id',    deleteListing,        true),
 ];
 
 export default {
@@ -1578,6 +1587,171 @@ function buildRichPdfBase64(contentLines) {
 
 function envSafeValue(fallback) {
   return fallback;
+}
+
+// ── Annonces d'occasion ─────────────────────────────────────────
+
+const LISTING_CONDITIONS = ['neuf', 'tres_bon', 'bon', 'correct'];
+const LISTING_CATEGORIES = ['gants', 'protections', 'tenues', 'accessoires', 'divers'];
+const LISTING_STATUSES   = ['pending', 'active', 'sold', 'rejected'];
+
+// GET /api/listings — annonces actives uniquement
+async function getListings(request, env, _p, url) {
+  const category = url.searchParams.get('category');
+  let query, args;
+  if (category && category !== 'tous') {
+    query = "SELECT id, title, description, price, category, condition, contact_name, image_url, created_at FROM listings WHERE status = 'active' AND category = ? ORDER BY created_at DESC";
+    args  = [category];
+  } else {
+    query = "SELECT id, title, description, price, category, condition, contact_name, image_url, created_at FROM listings WHERE status = 'active' ORDER BY created_at DESC";
+    args  = [];
+  }
+  const { results } = await env.DB.prepare(query).bind(...args).all();
+  return json(results);
+}
+
+// GET /api/listings/:id — détail annonce (publique, sans email ni téléphone si pending/rejected)
+async function getListing(_req, env, params) {
+  const listing = await env.DB.prepare('SELECT * FROM listings WHERE id = ?').bind(params.id).first();
+  if (!listing) return json({ error: 'Annonce introuvable' }, 404);
+  if (listing.status !== 'active') return json({ error: 'Annonce non disponible' }, 404);
+  // Ne pas exposer contact_email et contact_phone dans la réponse publique détaillée
+  const { contact_email: _e, contact_phone: _p, ...safe } = listing;
+  return json(safe);
+}
+
+// POST /api/listings — soumission publique d'une annonce (en attente de validation)
+async function createListing(request, env) {
+  const body = await request.json();
+  const title        = normalizeText(body.title, 160);
+  const description  = normalizeMultilineText(body.description, 1000) || null;
+  const price        = Number(body.price);
+  const category     = normalizeText(body.category, 40);
+  const condition    = normalizeText(body.condition, 20);
+  const contact_name = normalizeText(body.contact_name, 100);
+  const contact_email= normalizeEmail(body.contact_email);
+  const contact_phone= body.contact_phone ? normalizeText(body.contact_phone, 20) : null;
+
+  if (!title)          return json({ error: 'Titre obligatoire'         }, 400);
+  if (Number.isNaN(price) || price <= 0) return json({ error: 'Prix invalide (> 0)'      }, 400);
+  if (!LISTING_CATEGORIES.includes(category)) return json({ error: 'Catégorie invalide'      }, 400);
+  if (!LISTING_CONDITIONS.includes(condition)) return json({ error: 'État invalide'           }, 400);
+  if (!contact_name)   return json({ error: 'Nom du vendeur obligatoire'}, 400);
+  if (!contact_email)  return json({ error: 'Email invalide'            }, 400);
+
+  const result = await env.DB.prepare(
+    `INSERT INTO listings (title, description, price, category, condition, contact_name, contact_email, contact_phone, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
+  ).bind(title, description, price, category, condition, contact_name, contact_email, contact_phone).run();
+
+  return json({ success: true, id: result.meta.last_row_id, status: 'pending' }, 201);
+}
+
+// POST /api/listings/:id/image — upload image d'annonce (public, avant validation admin)
+async function uploadListingImage(request, env, params) {
+  const listing = await env.DB.prepare('SELECT id, status FROM listings WHERE id = ?').bind(params.id).first();
+  if (!listing) return json({ error: 'Annonce introuvable' }, 404);
+
+  const contentType = request.headers.get('Content-Type') || '';
+  if (!contentType.includes('multipart/form-data')) {
+    return json({ error: 'Envoi multipart/form-data requis' }, 400);
+  }
+
+  const formData = await request.formData();
+  const file = formData.get('image');
+  if (!file) return json({ error: 'Champ "image" manquant' }, 400);
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    return json({ error: 'Format non supporté (jpg, png, webp)' }, 400);
+  }
+
+  const buffer = await file.arrayBuffer();
+  if (buffer.byteLength > 5 * 1024 * 1024) {
+    return json({ error: 'Image trop lourde (max 5 Mo)' }, 400);
+  }
+
+  const ext    = file.type.split('/')[1].replace('jpeg', 'jpg');
+  const key    = `listings/${params.id}-${Date.now()}.${ext}`;
+
+  if (env.R2_BUCKET) {
+    await env.R2_BUCKET.put(key, buffer, { httpMetadata: { contentType: file.type } });
+    const imageUrl = `/images/${key}`;
+    await env.DB.prepare("UPDATE listings SET image_url = ?, updated_at = datetime('now') WHERE id = ?")
+      .bind(imageUrl, params.id).run();
+    return json({ success: true, image_url: imageUrl });
+  }
+
+  // Fallback base64
+  const uint8 = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < uint8.length; i += chunkSize) {
+    binary += String.fromCharCode(...uint8.subarray(i, i + chunkSize));
+  }
+  const dataUrl = `data:${file.type};base64,${btoa(binary)}`;
+  await env.DB.prepare("UPDATE listings SET image_url = ?, updated_at = datetime('now') WHERE id = ?")
+    .bind(dataUrl, params.id).run();
+  return json({ success: true, image_url: dataUrl });
+}
+
+// GET /api/admin/listings — toutes les annonces (admin)
+async function getAdminListings(request, env, _p, url) {
+  const status = url.searchParams.get('status');
+  let query, args;
+  if (status && LISTING_STATUSES.includes(status)) {
+    query = 'SELECT * FROM listings WHERE status = ? ORDER BY created_at DESC';
+    args  = [status];
+  } else {
+    query = 'SELECT * FROM listings ORDER BY created_at DESC';
+    args  = [];
+  }
+  const { results } = await env.DB.prepare(query).bind(...args).all();
+  return json(results);
+}
+
+// PATCH /api/admin/listings/:id — changer statut ou modifier une annonce (admin)
+async function updateListingStatus(request, env, params) {
+  const body = await request.json();
+  const sets   = [];
+  const values = [];
+
+  if (body.status !== undefined) {
+    if (!LISTING_STATUSES.includes(body.status)) return json({ error: 'Statut invalide' }, 400);
+    sets.push('status = ?');
+    values.push(body.status);
+  }
+  if (body.title !== undefined) {
+    sets.push('title = ?'); values.push(normalizeText(body.title, 160));
+  }
+  if (body.description !== undefined) {
+    sets.push('description = ?'); values.push(normalizeMultilineText(body.description, 1000) || null);
+  }
+  if (body.price !== undefined) {
+    const p = Number(body.price);
+    if (Number.isNaN(p) || p < 0) return json({ error: 'Prix invalide' }, 400);
+    sets.push('price = ?'); values.push(p);
+  }
+
+  if (!sets.length) return json({ error: 'Aucun champ à modifier' }, 400);
+
+  sets.push("updated_at = datetime('now')");
+  values.push(params.id);
+  await env.DB.prepare(`UPDATE listings SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
+  return json({ success: true });
+}
+
+// DELETE /api/admin/listings/:id — supprimer une annonce (admin)
+async function deleteListing(_req, env, params) {
+  const listing = await env.DB.prepare('SELECT id, image_url FROM listings WHERE id = ?').bind(params.id).first();
+  if (!listing) return json({ error: 'Annonce introuvable' }, 404);
+  // Supprimer image R2 si existante
+  if (env.R2_BUCKET && listing.image_url && listing.image_url.startsWith('/images/')) {
+    const key = listing.image_url.replace('/images/', '');
+    try { await env.R2_BUCKET.delete(key); } catch (_) { /* non bloquant */ }
+  }
+  await env.DB.prepare('DELETE FROM listings WHERE id = ?').bind(params.id).run();
+  return json({ success: true });
 }
 
 function buildCheckoutReturnUrl(baseUrl, orderId, status) {
