@@ -327,13 +327,88 @@ async function secureCompare(a, b) {
   return diff === 0;
 }
 
+// ── Hachage PBKDF2 (même pattern que gestion) ────────────────────
+
+async function derivePasswordHash(password, saltBytes, iterations) {
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations },
+    keyMaterial,
+    256,
+  );
+  return new Uint8Array(bits);
+}
+
+function bytesToHex(bytes) {
+  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(hex) {
+  const arr = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return arr;
+}
+
+const PBKDF2_PREFIX    = 'pbkdf2_sha256';
+const PBKDF2_ITERS     = 100_000;
+
+/**
+ * Hache un mot de passe en PBKDF2-SHA256 (100 000 itérations, sel aléatoire).
+ * Format stocké : "pbkdf2_sha256$<iters>$<salt_hex>$<hash_hex>"
+ */
+async function hashAdminPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const hash = await derivePasswordHash(password, salt, PBKDF2_ITERS);
+  return `${PBKDF2_PREFIX}$${PBKDF2_ITERS}$${bytesToHex(salt)}$${bytesToHex(hash)}`;
+}
+
+/**
+ * Vérifie un mot de passe contre un hash PBKDF2 stocké en D1.
+ * Accepte uniquement le format pbkdf2_sha256$… — aucun fallback en clair.
+ */
 async function verifyAdminPassword(password, env) {
-  if (env.ADMIN_PASSWORD_HASH) {
-    const candidate = await sha256Hex(password);
-    return secureCompare(candidate, env.ADMIN_PASSWORD_HASH);
+  // Charger le hash depuis D1 (table admin_config, clé 'admin_password_hash')
+  const row = await env.DB.prepare(
+    "SELECT value FROM admin_config WHERE key = 'admin_password_hash' LIMIT 1"
+  ).first();
+
+  if (!row?.value) {
+    // Aucun hash en base → fallback d'initialisation sécurisé : accepter uniquement
+    // si ADMIN_PASSWORD_HASH_INIT est défini (variable d'environnement temporaire).
+    // En production, cette branche ne doit jamais être atteinte.
+    if (!env.ADMIN_PASSWORD_HASH_INIT) {
+      console.error('[auth] Aucun hash admin en base et ADMIN_PASSWORD_HASH_INIT absent — connexion refusée.');
+      return false;
+    }
+    // ADMIN_PASSWORD_HASH_INIT doit être un hash PBKDF2 valide (généré une seule fois)
+    const stored = String(env.ADMIN_PASSWORD_HASH_INIT);
+    return verifyPbkdf2(password, stored);
   }
-  if (!env.ADMIN_PASSWORD) return false;
-  return secureCompare(password, env.ADMIN_PASSWORD);
+
+  return verifyPbkdf2(password, String(row.value));
+}
+
+async function verifyPbkdf2(password, stored) {
+  if (!stored.startsWith(`${PBKDF2_PREFIX}$`)) {
+    console.error('[auth] Format de hash non reconnu — connexion refusée.');
+    return false;
+  }
+  const parts = stored.split('$');
+  if (parts.length !== 4) return false;
+  const iters   = Number(parts[1]);
+  const saltHex = parts[2];
+  const hashHex = parts[3];
+  if (!iters || iters > PBKDF2_ITERS * 2 || !saltHex || !hashHex) return false;
+  const derived = await derivePasswordHash(password, hexToBytes(saltHex), iters);
+  // Comparaison en temps constant via sha256Hex (double hash évite le timing leak sur longueur)
+  const [dh, sh] = await Promise.all([sha256Hex(bytesToHex(derived)), sha256Hex(hashHex)]);
+  return secureCompare(dh, sh);
 }
 
 async function isAdminRateLimited(env, ip) {
@@ -1818,3 +1893,11 @@ function buildCheckoutReturnUrl(baseUrl, orderId, status) {
 }
 
 const PDF_LOGO_JPEG_BASE64 = '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';
+
+// NOTE pour la migration : ajouter dans schema.sql ou une nouvelle migration :
+// CREATE TABLE IF NOT EXISTS admin_config (
+//   key   TEXT PRIMARY KEY,
+//   value TEXT NOT NULL
+// );
+// -- Puis générer le hash initial avec : node -e "..."  ou via un script dédié
+// -- et insérer : INSERT INTO admin_config (key, value) VALUES ('admin_password_hash', '<hash_pbkdf2>');
