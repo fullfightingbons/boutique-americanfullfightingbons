@@ -1,7 +1,6 @@
 name = "boutique-americanfullfightingbons"
-account_id = "a11cb0253f0870d57b54f6eaaedb439c"
 main = "src/worker.js"
-compatibility_date = "2025-01-01"
+compatibility_date = "2025-12-17"
 compatibility_flags = ["nodejs_compat"]
 
 # ── D1 Database ──────────────────────────────────────────────────
@@ -11,30 +10,30 @@ database_name = "boutique-americanfullfightingbons"
 database_id   = "7be72073-32e5-4a81-a8da-243a2687af36"
 
 # ── R2 Bucket (images produits) ──────────────────────────────────
-# Créer d'abord : wrangler r2 bucket create affb-images
 [[r2_buckets]]
 binding     = "R2_BUCKET"
 bucket_name = "affb-images"
 
 # ── Variables d'environnement ────────────────────────────────────
-# IMPORTANT : ne jamais mettre les secrets ici en clair !
-# Les définir dans le dashboard Cloudflare ou via :
-#   wrangler secret put ADMIN_PASSWORD
-#   wrangler secret put HELLOASSO_CLIENT_SECRET
-#   wrangler secret put BREVO_API_KEY
+# IMPORTANT : ne jamais mettre les secrets ici en clair.
+# Secrets à définir via wrangler secret put ou GitHub Secrets :
+#   ADMIN_PASSWORD
+#   HELLOASSO_CLIENT_SECRET
+#   BREVO_API_KEY
 
 [vars]
-ENVIRONMENT           = "production"
+ENVIRONMENT = "production"
 
-# HelloAsso — à adapter à votre organisation
-HELLOASSO_ORG_SLUG    = "american-full-fighting-bons-en-chablais"
-HELLOASSO_RETURN_URL  = "https://boutique.americanfullfightingbons.fr/?payment=success"
-HELLOASSO_ERROR_URL   = "https://boutique.americanfullfightingbons.fr/?payment=error"
+# HelloAsso — slug de l'organisation
+HELLOASSO_ORG_SLUG   = "american-full-fighting-bons-en-chablais"
+HELLOASSO_RETURN_URL = "https://boutique.americanfullfightingbons.fr/?payment=success"
+HELLOASSO_ERROR_URL  = "https://boutique.americanfullfightingbons.fr/?payment=error"
 
-# Brevo — à adapter
-BREVO_FROM_EMAIL      = "contact@americanfullfightingbons.fr"
-BREVO_FROM_NAME       = "AFFB Boutique"
-BREVO_CLUB_EMAIL      = "fullfightingbons@gmail.com"
+# HelloAsso OAuth2 client_id (non secret — identifiant public de l'app OAuth2)
+# Remplacer par la valeur réelle obtenue dans HelloAsso > Paramètres > API
+HELLOASSO_CLIENT_ID  = "votre-client-id-helloasso"
 
-# HelloAsso OAuth2 client_id (non secret, peut rester ici)
-# HELLOASSO_CLIENT_ID = "votre-client-id-ici"
+# Brevo
+BREVO_FROM_EMAIL  = "contact@americanfullfightingbons.fr"
+BREVO_FROM_NAME   = "AFFB Boutique"
+BREVO_CLUB_EMAIL  = "fullfightingbons@gmail.com"
