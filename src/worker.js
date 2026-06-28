@@ -16,7 +16,11 @@ const CLUB_CONTACT_EMAIL = 'fullfightingbons@gmail.com';
 const MAIL_SENDER_EMAIL = 'contact@americanfullfightingbons.fr';
 
 // ── Variables d'environnement attendues (dashboard Cloudflare) ──
-// ADMIN_PASSWORD   : mot de passe brut de l'administrateur
+// Mot de passe admin : PAS de variable ADMIN_PASSWORD/ADMIN_PASSWORD_HASH en
+// clair. Le hash PBKDF2 est stocké en base D1 (table admin_config, clé
+// 'admin_password_hash' — cf. migration_admin_pbkdf2.sql). ADMIN_PASSWORD_HASH_INIT
+// est une variable d'env temporaire, utilisable uniquement avant la première
+// insertion du hash en base (voir README, section « 4bis »).
 // HELLOASSO_CLIENT_ID     : OAuth2 client_id HelloAsso
 // HELLOASSO_CLIENT_SECRET : OAuth2 client_secret HelloAsso
 // HELLOASSO_ORG_SLUG      : slug de l'organisation HelloAsso (ex: "affb-bons")

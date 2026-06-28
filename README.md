@@ -63,10 +63,6 @@ Pour accès public (optionnel, recommandé) :
 ## 4. Configurer les secrets (via Wrangler CLI)
 
 ```bash
-# Mot de passe du panel admin
-wrangler secret put ADMIN_PASSWORD
-# → Entrez votre mot de passe (ex: MonMotDePasse2025!)
-
 # HelloAsso OAuth2
 wrangler secret put HELLOASSO_CLIENT_ID
 wrangler secret put HELLOASSO_CLIENT_SECRET
@@ -74,6 +70,45 @@ wrangler secret put HELLOASSO_CLIENT_SECRET
 # Brevo (ex-Sendinblue)
 wrangler secret put BREVO_API_KEY
 ```
+
+> ⚠️ **Mot de passe admin : pas de secret `ADMIN_PASSWORD` en clair.** Depuis
+> `migration_admin_pbkdf2.sql`, le mot de passe admin n'est plus un secret
+> Cloudflare en clair (ni un hash SHA-256) : il est stocké en base D1
+> (table `admin_config`) sous forme de hash **PBKDF2** salé. `worker.js` ne
+> lit jamais de variable `ADMIN_PASSWORD` — voir « 4bis » ci-dessous pour la
+> procédure d'initialisation correcte.
+
+---
+
+## 4bis. Initialiser le mot de passe admin (PBKDF2)
+
+```bash
+# 1. Appliquer la migration qui crée la table admin_config
+npm run db:migrate:admin          # local
+npm run db:migrate:admin:remote   # production
+
+# 2. Générer un hash PBKDF2 pour votre mot de passe
+node -e "
+(async () => {
+  const pw = 'VotreMotDePasseAdmin';
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt,iterations:100000}, key, 256);
+  const hex = s => [...new Uint8Array(s)].map(b=>b.toString(16).padStart(2,'0')).join('');
+  console.log('pbkdf2_sha256\$100000\$' + hex(salt) + '\$' + hex(bits));
+})();
+"
+
+# 3. Insérer le hash obtenu en base (remplacez <hash> par la sortie ci-dessus)
+wrangler d1 execute boutique-americanfullfightingbons --remote --command \
+  "INSERT INTO admin_config (key,value) VALUES ('admin_password_hash','<hash>');"
+```
+
+> Tant que `admin_config` ne contient pas de hash, vous pouvez démarrer le
+> Worker temporairement avec la variable d'environnement
+> `ADMIN_PASSWORD_HASH_INIT` (même format de hash) pour effectuer la
+> première connexion — supprimez-la dès que le hash est inséré en base
+> (étape 3), elle ne doit jamais rester active en production.
 
 ---
 
@@ -222,11 +257,14 @@ npm run dev
 > En local, R2 et certains secrets peuvent ne pas être disponibles.
 > Utilisez `.dev.vars` pour les secrets locaux :
 > ```
-> ADMIN_PASSWORD=test123
+> ADMIN_PASSWORD_HASH_INIT=pbkdf2_sha256$100000$<salt_hex>$<hash_hex>
 > BREVO_API_KEY=xkeysib-...
 > HELLOASSO_CLIENT_ID=...
 > HELLOASSO_CLIENT_SECRET=...
 > ```
+> Générez `ADMIN_PASSWORD_HASH_INIT` avec la commande `node -e "..."` de la
+> section « 4bis » ci-dessus (utile uniquement en local/dev — en production,
+> stockez le hash dans `admin_config`, pas dans une variable d'env).
 
 ---
 
