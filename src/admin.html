@@ -624,13 +624,21 @@ async function doLogin() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: pwd }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (res.ok && data.token) {
     AUTH_TOKEN = data.token;
     sessionStorage.setItem('affb_admin_token', data.token);
     showAdminApp();
   } else {
-    document.getElementById('loginError').style.display = 'block';
+    // Affiche le vrai message renvoyé par l'API (mot de passe incorrect,
+    // rate-limit 429, ou "aucun hash admin en base" côté 401 générique)
+    // plutôt qu'un texte générique qui masque la cause réelle.
+    const msg = data.error || (res.status === 500
+      ? 'Erreur serveur : contactez le développeur.'
+      : 'Mot de passe incorrect.');
+    const errEl = document.getElementById('loginError');
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
   }
 }
 document.getElementById('loginPwd').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });

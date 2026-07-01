@@ -16,8 +16,14 @@ bucket_name = "affb-images"
 
 # ── Variables d'environnement ────────────────────────────────────
 # IMPORTANT : ne jamais mettre les secrets ici en clair.
+#
+# Le mot de passe admin n'est PAS un secret Cloudflare : il est stocké en
+# base D1 sous forme de hash PBKDF2 (table admin_config, clé
+# 'admin_password_hash'). Ne définissez PAS de secret ADMIN_PASSWORD, il
+# n'est jamais lu par le code — voir README section « 4bis » pour la
+# procédure d'initialisation correcte (génération + insertion du hash).
+#
 # Secrets à définir via wrangler secret put ou GitHub Secrets :
-#   ADMIN_PASSWORD
 #   HELLOASSO_CLIENT_SECRET
 #   BREVO_API_KEY
 
