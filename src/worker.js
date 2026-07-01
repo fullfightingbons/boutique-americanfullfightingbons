@@ -44,6 +44,7 @@ const routes = [
   // ── Auth admin ────────────────────────────────────────────────
   route('POST',  '/api/admin/login',         adminLogin),
   route('POST',  '/api/admin/logout',        adminLogout),
+  route('POST',  '/api/admin/change-password', adminChangePassword, true),
 
   // ── Produits publics ──────────────────────────────────────────
   route('GET',   '/api/products',            getProducts),
@@ -459,6 +460,42 @@ async function adminLogin(request, env) {
 async function adminLogout(request, env) {
   const token = getAuthToken(request);
   if (token) await env.DB.prepare('DELETE FROM admin_sessions WHERE token = ?').bind(token).run();
+  return json({ success: true });
+}
+
+// POST /api/admin/change-password — body: { currentPassword, newPassword }
+// Nécessite une session admin valide (route protégée, adminOnly=true) ET le
+// mot de passe actuel (défense en profondeur : un token volé ne suffit pas
+// à changer le mot de passe sans connaître l'ancien).
+async function adminChangePassword(request, env) {
+  const { currentPassword, newPassword } = await request.json();
+  const ip = getClientIp(request);
+
+  if (await isAdminRateLimited(env, ip)) {
+    return json({ error: 'Trop de tentatives. Réessayez plus tard.' }, 429);
+  }
+  if (!currentPassword || !(await verifyAdminPassword(currentPassword, env))) {
+    await recordAdminLoginAttempt(env, ip, false);
+    return json({ error: 'Mot de passe actuel incorrect' }, 401);
+  }
+  if (!newPassword || String(newPassword).length < 10) {
+    return json({ error: 'Le nouveau mot de passe doit contenir au moins 10 caractères' }, 400);
+  }
+  if (newPassword === currentPassword) {
+    return json({ error: 'Le nouveau mot de passe doit être différent de l\u2019actuel' }, 400);
+  }
+
+  const newHash = await hashAdminPassword(newPassword);
+  await env.DB.prepare(
+    `INSERT INTO admin_config (key, value, updated_at) VALUES ('admin_password_hash', ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).bind(newHash).run();
+
+  // Par sécurité, on invalide toutes les sessions actives (y compris celle
+  // en cours) après un changement de mot de passe — l'admin devra se
+  // reconnecter avec le nouveau mot de passe.
+  await env.DB.prepare('DELETE FROM admin_sessions').run();
+
   return json({ success: true });
 }
 

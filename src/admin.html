@@ -232,6 +232,7 @@
       <button class="admin-nav-btn" onclick="showTab('products', this)">Produits</button>
       <button class="admin-nav-btn" onclick="showTab('orders', this)">Commandes</button>
       <button class="admin-nav-btn" onclick="showTab('listings', this)">Annonces <span id="listingPendingBadge" style="background:var(--red);color:#fff;font-size:10px;padding:1px 5px;border-radius:2px;display:none"></span></button>
+      <button class="admin-nav-btn" onclick="showTab('account', this)">Compte</button>
     </nav>
     <div style="display:flex;align-items:center;gap:12px">
       <a href="/" target="_blank" class="btn btn-dark btn-sm">↗ Boutique</a>
@@ -454,6 +455,33 @@
       </div>
     </div>
 
+    <!-- ── TAB : COMPTE ─────────────────────────────────────────── -->
+    <div id="tab-account" class="tab">
+      <div class="admin-section-title">Changer le mot de passe administrateur</div>
+      <div style="max-width:420px">
+        <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+          <div class="form-group" style="margin-bottom:12px">
+            <label>Mot de passe actuel</label>
+            <input type="password" id="cpCurrent" class="form-control" required autocomplete="current-password">
+          </div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label>Nouveau mot de passe</label>
+            <input type="password" id="cpNew" class="form-control" required minlength="10" autocomplete="new-password">
+            <div style="font-size:12px;color:var(--gray);margin-top:4px">Au moins 10 caractères.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:16px">
+            <label>Confirmer le nouveau mot de passe</label>
+            <input type="password" id="cpConfirm" class="form-control" required minlength="10" autocomplete="new-password">
+          </div>
+          <div id="cpMessage" style="margin-bottom:12px;font-size:14px"></div>
+          <button type="submit" class="btn btn-dark">Changer le mot de passe</button>
+        </form>
+        <div style="font-size:12px;color:var(--gray);margin-top:16px">
+          Après le changement, toutes les sessions actives (y compris celle-ci) sont fermées : une reconnexion avec le nouveau mot de passe sera nécessaire.
+        </div>
+      </div>
+    </div>
+
   </div><!-- /admin-content -->
 </div><!-- /adminApp -->
 
@@ -651,6 +679,41 @@ async function doLogout() {
   AUTH_TOKEN = '';
   sessionStorage.removeItem('affb_admin_token');
   location.reload();
+}
+
+async function submitChangePassword(evt) {
+  evt.preventDefault();
+  const currentPassword = document.getElementById('cpCurrent').value;
+  const newPassword     = document.getElementById('cpNew').value;
+  const confirmPassword = document.getElementById('cpConfirm').value;
+  const msgEl = document.getElementById('cpMessage');
+  msgEl.style.color = '';
+  msgEl.textContent = '';
+
+  if (newPassword !== confirmPassword) {
+    msgEl.style.color = 'var(--red)';
+    msgEl.textContent = 'Les deux nouveaux mots de passe ne correspondent pas.';
+    return;
+  }
+  if (newPassword.length < 10) {
+    msgEl.style.color = 'var(--red)';
+    msgEl.textContent = 'Le nouveau mot de passe doit contenir au moins 10 caractères.';
+    return;
+  }
+
+  const { ok, data } = await api('POST', '/api/admin/change-password', { currentPassword, newPassword });
+  if (ok) {
+    msgEl.style.color = 'var(--green, #1a7f37)';
+    msgEl.textContent = 'Mot de passe changé. Vous allez être déconnecté...';
+    setTimeout(() => {
+      AUTH_TOKEN = '';
+      sessionStorage.removeItem('affb_admin_token');
+      location.reload();
+    }, 1500);
+  } else {
+    msgEl.style.color = 'var(--red)';
+    msgEl.textContent = data.error || 'Erreur lors du changement de mot de passe.';
+  }
 }
 
 function showAdminApp() {
