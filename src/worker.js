@@ -10,6 +10,8 @@
 
 import HTML       from './index.html';
 import ADMIN_HTML from './admin.html';
+import MENTIONS_HTML from './mentions-legales.html';
+import CGV_HTML from './cgv.html';
 import { buildHelloAssoPaymentState } from './helloasso-helpers.mjs';
 
 const CLUB_CONTACT_EMAIL = 'fullfightingbons@gmail.com';
@@ -40,6 +42,8 @@ const routes = [
   // ── Frontend ──────────────────────────────────────────────────
   route('GET',   '/',                        serveHTML),
   route('GET',   '/admin',                   serveAdminHTML),
+  route('GET',   '/mentions-legales',        serveMentionsHTML),
+  route('GET',   '/cgv',                     serveCgvHTML),
 
   // ── Auth admin ────────────────────────────────────────────────
   route('POST',  '/api/admin/login',         adminLogin),
@@ -153,11 +157,12 @@ export default {
 };
 
 // ── Helpers généraux ─────────────────────────────────────────────
-function json(data, status = 200) {
+function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
     headers: securityHeaders({
       'Content-Type': 'application/json; charset=UTF-8',
+      ...extraHeaders,
     }),
   });
 }
@@ -196,6 +201,7 @@ function cors(response, request, env) {
   const allowedOrigins = getAllowedOrigins(env, requestUrl);
   const allowOrigin = origin && allowedOrigins.has(origin) ? origin : requestUrl.origin;
   r.headers.set('Access-Control-Allow-Origin', allowOrigin);
+  r.headers.set('Access-Control-Allow-Credentials', 'true');
   r.headers.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   r.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   r.headers.set('Vary', 'Origin');
@@ -224,7 +230,36 @@ function randomToken(len = 48) {
   return [...arr].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// ── Session admin : cookie HttpOnly signé côté navigateur ──────────
+// Remplace le stockage du token en sessionStorage (lisible par un XSS).
+// L'API continue d'accepter un Authorization: Bearer pour un usage
+// scripté/cURL (cf. README), mais admin.html n'utilise plus que le cookie.
+const ADMIN_SESSION_COOKIE = 'affbc_boutique_session';
+
+function parseCookies(request) {
+  const raw = request.headers.get('Cookie') || '';
+  return Object.fromEntries(
+    raw.split(';').map(p => p.trim()).filter(Boolean).map(p => {
+      const idx = p.indexOf('=');
+      return idx === -1 ? [p, ''] : [p.slice(0, idx), decodeURIComponent(p.slice(idx + 1))];
+    })
+  );
+}
+
+function buildSessionCookie(token, env, maxAgeSeconds) {
+  const secure = env.ENVIRONMENT === 'production' ? ' Secure;' : '';
+  return `${ADMIN_SESSION_COOKIE}=${token}; HttpOnly;${secure} SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}`;
+}
+
+function clearSessionCookie(env) {
+  const secure = env.ENVIRONMENT === 'production' ? ' Secure;' : '';
+  return `${ADMIN_SESSION_COOKIE}=; HttpOnly;${secure} SameSite=Strict; Path=/; Max-Age=0`;
+}
+
 function getAuthToken(request) {
+  const cookies = parseCookies(request);
+  if (cookies[ADMIN_SESSION_COOKIE]) return cookies[ADMIN_SESSION_COOKIE];
+  // Rétro-compatibilité : appels scriptés (cURL, README) avec Authorization: Bearer.
   const h = request.headers.get('Authorization') || '';
   if (h.startsWith('Bearer ')) return h.slice(7);
   return null;
@@ -449,18 +484,23 @@ async function adminLogin(request, env) {
   }
   await recordAdminLoginAttempt(env, ip, true);
   const token = randomToken();
-  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  const maxAgeSeconds = 8 * 60 * 60;
+  const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000).toISOString().replace('T', ' ').slice(0, 19);
   await env.DB.prepare(
     'INSERT INTO admin_sessions (token, expires_at) VALUES (?, ?)'
   ).bind(token, expiresAt).run();
-  return json({ token, expires_at: expiresAt });
+  // Le token reste renvoyé dans le corps (usage API/cURL, cf. README) et est en plus
+  // posé en cookie HttpOnly signé pour l'admin web, qui ne lit plus jamais ce champ.
+  return json({ token, expires_at: expiresAt }, 200, {
+    'Set-Cookie': buildSessionCookie(token, env, maxAgeSeconds),
+  });
 }
 
 // POST /api/admin/logout
 async function adminLogout(request, env) {
   const token = getAuthToken(request);
   if (token) await env.DB.prepare('DELETE FROM admin_sessions WHERE token = ?').bind(token).run();
-  return json({ success: true });
+  return json({ success: true }, 200, { 'Set-Cookie': clearSessionCookie(env) });
 }
 
 // POST /api/admin/change-password — body: { currentPassword, newPassword }
@@ -496,7 +536,7 @@ async function adminChangePassword(request, env) {
   // reconnecter avec le nouveau mot de passe.
   await env.DB.prepare('DELETE FROM admin_sessions').run();
 
-  return json({ success: true });
+  return json({ success: true }, 200, { 'Set-Cookie': clearSessionCookie(env) });
 }
 
 // ── Serveur HTML ─────────────────────────────────────────────────
@@ -507,6 +547,14 @@ async function serveHTML() {
 
 async function serveAdminHTML() {
   return new Response(ADMIN_HTML, { headers: securityHeaders({ 'Content-Type': 'text/html; charset=UTF-8' }) });
+}
+
+async function serveMentionsHTML() {
+  return new Response(MENTIONS_HTML, { headers: securityHeaders({ 'Content-Type': 'text/html; charset=UTF-8' }) });
+}
+
+async function serveCgvHTML() {
+  return new Response(CGV_HTML, { headers: securityHeaders({ 'Content-Type': 'text/html; charset=UTF-8' }) });
 }
 
 // ── Produits publics ─────────────────────────────────────────────

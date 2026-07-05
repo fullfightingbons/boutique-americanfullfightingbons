@@ -545,7 +545,8 @@
 // ════════════════════════════════════════════════════════════════
 //  État global
 // ════════════════════════════════════════════════════════════════
-let AUTH_TOKEN  = sessionStorage.getItem('affb_admin_token') || '';
+// Session admin : cookie HttpOnly posé par le serveur au login (voir doLogin()).
+// Il n'y a plus de token à conserver côté JS — credentials:'include' suffit.
 let allProducts = [];   // cache local pour la recherche
 let currentImgFile = null;
 
@@ -562,8 +563,8 @@ function showToast(msg, type = '') {
 async function api(method, path, body) {
   const opts = {
     method,
+    credentials: 'include',
     headers: {
-      'Authorization': `Bearer ${AUTH_TOKEN}`,
       'Content-Type':  'application/json',
     },
   };
@@ -576,7 +577,7 @@ async function api(method, path, body) {
 async function apiForm(path, formData) {
   const res  = await fetch(path, {
     method:  'POST',
-    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+    credentials: 'include',
     body:    formData,
   });
   return { ok: res.ok, data: await res.json().catch(() => ({})) };
@@ -649,13 +650,12 @@ async function doLogin() {
   if (!pwd) return;
   const res = await fetch('/api/admin/login', {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: pwd }),
   });
   const data = await res.json().catch(() => ({}));
-  if (res.ok && data.token) {
-    AUTH_TOKEN = data.token;
-    sessionStorage.setItem('affb_admin_token', data.token);
+  if (res.ok && data.expires_at) {
     showAdminApp();
   } else {
     // Affiche le vrai message renvoyé par l'API (mot de passe incorrect,
@@ -674,10 +674,8 @@ document.getElementById('loginPwd').addEventListener('keydown', e => { if (e.key
 async function doLogout() {
   await fetch('/api/admin/logout', {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+    credentials: 'include',
   });
-  AUTH_TOKEN = '';
-  sessionStorage.removeItem('affb_admin_token');
   location.reload();
 }
 
@@ -705,11 +703,7 @@ async function submitChangePassword(evt) {
   if (ok) {
     msgEl.style.color = 'var(--green, #1a7f37)';
     msgEl.textContent = 'Mot de passe changé. Vous allez être déconnecté...';
-    setTimeout(() => {
-      AUTH_TOKEN = '';
-      sessionStorage.removeItem('affb_admin_token');
-      location.reload();
-    }, 1500);
+    setTimeout(() => location.reload(), 1500);
   } else {
     msgEl.style.color = 'var(--red)';
     msgEl.textContent = data.error || 'Erreur lors du changement de mot de passe.';
@@ -724,12 +718,9 @@ function showAdminApp() {
   loadOrders();
 }
 
-// Auto-login si token mémorisé
-if (AUTH_TOKEN) {
-  // Vérifier si token valide
-  fetch('/api/admin/stats', { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } })
-    .then(r => { if (r.ok) showAdminApp(); else { AUTH_TOKEN = ''; sessionStorage.removeItem('affb_admin_token'); } });
-}
+// Auto-login si une session valide existe déjà (cookie HttpOnly posé par un login précédent)
+fetch('/api/admin/stats', { credentials: 'include' })
+  .then(r => { if (r.ok) showAdminApp(); });
 
 // ════════════════════════════════════════════════════════════════
 //  TABS

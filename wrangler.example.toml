@@ -1,0 +1,45 @@
+name = "boutique-americanfullfightingbons"
+main = "src/worker.js"
+compatibility_date = "2025-12-17"
+compatibility_flags = ["nodejs_compat"]
+
+# ── D1 Database ──────────────────────────────────────────────────
+[[d1_databases]]
+binding       = "DB"
+database_name = "boutique-americanfullfightingbons"
+database_id   = "<BOUTIQUE_DATABASE_ID>"
+
+# ── R2 Bucket (images produits) ──────────────────────────────────
+[[r2_buckets]]
+binding     = "R2_BUCKET"
+bucket_name = "affb-images"
+
+# ── Variables d'environnement ────────────────────────────────────
+# IMPORTANT : ne jamais mettre les secrets ici en clair.
+#
+# Le mot de passe admin n'est PAS un secret Cloudflare : il est stocké en
+# base D1 sous forme de hash PBKDF2 (table admin_config, clé
+# 'admin_password_hash'). Ne définissez PAS de secret ADMIN_PASSWORD, il
+# n'est jamais lu par le code — voir README section « 4bis » pour la
+# procédure d'initialisation correcte (génération + insertion du hash).
+#
+# Secrets à définir via wrangler secret put ou GitHub Secrets :
+#   HELLOASSO_CLIENT_SECRET
+#   BREVO_API_KEY
+
+[vars]
+ENVIRONMENT = "production"
+
+# HelloAsso — slug de l'organisation
+HELLOASSO_ORG_SLUG   = "american-full-fighting-bons-en-chablais"
+HELLOASSO_RETURN_URL = "https://boutique.americanfullfightingbons.fr/?payment=success"
+HELLOASSO_ERROR_URL  = "https://boutique.americanfullfightingbons.fr/?payment=error"
+
+# HelloAsso OAuth2 client_id (non secret — identifiant public de l'app OAuth2)
+# Remplacer par la valeur réelle obtenue dans HelloAsso > Paramètres > API
+HELLOASSO_CLIENT_ID  = "votre-client-id-helloasso"
+
+# Brevo
+BREVO_FROM_EMAIL  = "contact@americanfullfightingbons.fr"
+BREVO_FROM_NAME   = "AFFB Boutique"
+BREVO_CLUB_EMAIL  = "fullfightingbons@gmail.com"
