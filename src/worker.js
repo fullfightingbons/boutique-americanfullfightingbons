@@ -154,6 +154,18 @@ export default {
 
     return cors(json({ error: 'Route introuvable' }, 404), request, env);
   },
+
+  // ── Cron quotidien (cf. [triggers] crons dans wrangler.toml) ──────────────
+  // Rattrape ou libère les commandes "pending_payment" dont le retour
+  // HelloAsso n'a jamais eu lieu (cf. purgeAbandonedOrders ci-dessus).
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(
+      purgeAbandonedOrders(env).then(
+        (r) => console.log('[cron] purgeAbandonedOrders:', JSON.stringify(r)),
+        (e) => console.error('[cron] purgeAbandonedOrders a échoué', e instanceof Error ? e.message : String(e)),
+      ),
+    );
+  },
 };
 
 // ── Helpers généraux ─────────────────────────────────────────────
@@ -1340,6 +1352,55 @@ async function finalizePaidOrder(env, orderId, helloAssoIntent) {
   await env.DB.prepare('DELETE FROM order_access_tokens WHERE order_id = ?').bind(orderId).run();
   const invoice = await sendInvoiceForOrder(env, orderId);
   return { confirmed: true, invoice_sent: invoice.sent };
+}
+
+// ── Rattrapage des commandes "pending_payment" jamais finalisées ──────────
+// Le callback /api/checkout/callback vérifie déjà correctement le paiement
+// réel avant de confirmer une commande — mais il ne s'exécute que si le
+// navigateur du client revient jusqu'à HelloAsso puis jusqu'ici. Si le client
+// ferme l'onglet, perd la connexion, ou que la redirection échoue en cours de
+// route, la commande reste "pending_payment" indéfiniment : le stock reste
+// réservé pour de bon (cf. reserveStockForItem), qu'il ait payé ou non.
+//
+// Ce job quotidien reprend chaque commande "pending_payment" avec un
+// helloasso_id, vieille de plus de 2h, et revérifie directement auprès de
+// HelloAsso : si le paiement est bien passé, la commande est rattrapée en
+// "confirmed" (facture envoyée, comme un callback normal) ; sinon le stock
+// réservé est libéré et la commande passe "payment_failed". On ne se fie
+// jamais au seul délai écoulé pour décider — uniquement à la réponse de
+// HelloAsso, pour ne jamais annuler une commande réellement payée.
+async function purgeAbandonedOrders(env) {
+  const { results } = await env.DB.prepare(`
+    SELECT id, helloasso_id, total FROM orders
+    WHERE status = 'pending_payment'
+      AND helloasso_id IS NOT NULL
+      AND created_at < datetime('now', '-2 hours')
+  `).all();
+  if (!results || results.length === 0) return { checked: 0, confirmed: 0, released: 0, errors: 0 };
+
+  let confirmed = 0;
+  let released = 0;
+  let errors = 0;
+  for (const order of results) {
+    try {
+      const intent = await getHelloAssoCheckoutIntent(env, order.helloasso_id);
+      const paymentState = buildHelloAssoPaymentState(intent, order.total);
+      if (paymentState.paid) {
+        await finalizePaidOrder(env, order.id, intent);
+        confirmed++;
+      } else {
+        await releaseReservedStockForOrder(env, order.id);
+        released++;
+      }
+    } catch (err) {
+      // Vérification impossible (HelloAsso indisponible, etc.) : on ne touche
+      // à rien pour cette commande, on retentera au prochain passage plutôt
+      // que de risquer de libérer le stock d'un paiement réel.
+      console.error(`[cron] purgeAbandonedOrders: vérification échouée pour la commande #${order.id}`, err);
+      errors++;
+    }
+  }
+  return { checked: results.length, confirmed, released, errors };
 }
 
 // Extrait les infos de paiement du payload HelloAsso (checkout intent)
