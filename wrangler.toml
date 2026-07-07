@@ -43,3 +43,7 @@ HELLOASSO_CLIENT_ID  = "votre-client-id-helloasso"
 BREVO_FROM_EMAIL  = "contact@americanfullfightingbons.fr"
 BREVO_FROM_NAME   = "AFFB Boutique"
 BREVO_CLUB_EMAIL  = "fullfightingbons@gmail.com"
+
+# ── Cron : rattrapage/libération des commandes pending_payment abandonnées ──
+[triggers]
+crons = ["0 6 * * *"]
