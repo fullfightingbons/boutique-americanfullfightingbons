@@ -64,6 +64,8 @@ const routes = [
   // ── Commandes ─────────────────────────────────────────────────
   route('POST',  '/api/orders',              createOrder),
   route('GET',   '/api/orders/:id',          getOrder),
+  route('GET',   '/api/member/orders',              getMemberOrders),
+  route('GET',   '/api/member/orders/:id/invoice',  getMemberOrderInvoice),
   route('PATCH', '/api/orders/:id',          updateOrderStatus, true),
   route('GET',   '/api/admin/orders',        getAdminOrders,    true),
   route('GET',   '/api/admin/stats',         getStats,          true),
@@ -202,6 +204,7 @@ function getAllowedOrigins(env, requestUrl) {
     'https://calendrier.americanfullfightingbons.fr',
     'https://boutique.americanfullfightingbons.fr',
     'https://gestion.americanfullfightingbons.fr',
+    'https://espace-membre.americanfullfightingbons.fr',
     ...configured,
   ]);
 }
@@ -377,6 +380,64 @@ async function secureCompare(a, b) {
   let diff = 0;
   for (let i = 0; i < ah.length; i++) diff |= ah.charCodeAt(i) ^ bh.charCodeAt(i);
   return diff === 0;
+}
+
+// ── Vérification des jetons de l'espace membre (émis par gestion) ────────
+// gestion et calendrier partagent déjà exactement ce même format de jeton
+// signé (charge JSON encodée en base64url + signature HMAC-SHA256, elle
+// aussi en base64url) sous SESSION_SECRET. On reproduit ici uniquement la
+// vérification (jamais l'émission : la boutique n'authentifie pas les
+// membres elle-même, elle fait confiance à un jeton déjà signé par gestion),
+// à condition que SESSION_SECRET soit configuré avec la MÊME valeur sur les
+// deux Workers.
+function base64UrlToBytes(value) {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(value.length + ((4 - (value.length % 4)) % 4), '=');
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function hmacSha256Base64Url(secret, value) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return bytesToBase64Url(new Uint8Array(signature));
+}
+
+async function parseMemberSessionToken(token, env) {
+  const secret = String(env.SESSION_SECRET || '');
+  if (secret.length < 32) {
+    throw new Error('SESSION_SECRET manquant ou trop court (32 caractères minimum) côté boutique.');
+  }
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null;
+  const [encodedPayload, signature] = token.split('.');
+  if (!encodedPayload || !signature) return null;
+  const expected = await hmacSha256Base64Url(secret, encodedPayload);
+  const ok = await secureCompare(signature, expected);
+  if (!ok) return null;
+  try {
+    const json = new TextDecoder().decode(base64UrlToBytes(encodedPayload));
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+async function requireMember(request, env) {
+  const authHeader = request.headers.get('Authorization') || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) return null;
+  const session = await parseMemberSessionToken(token, env);
+  if (!session || session.kind !== 'member' || !session.email || Number(session.expiresAt) < Date.now()) {
+    return null;
+  }
+  return session;
 }
 
 // ── Hachage PBKDF2 (même pattern que gestion) ────────────────────
@@ -994,6 +1055,45 @@ async function getOrder(request, env, params) {
   if (!order) return json({ error: 'Commande introuvable' }, 404);
   const { results: items } = await env.DB.prepare('SELECT * FROM order_items WHERE order_id = ?').bind(params.id).all();
   return json({ ...order, items });
+}
+
+// ── Espace membre ──────────────────────────────────────────────────────
+// Distinct de verifyOrderAccess (jeton par commande, pensé pour un client
+// invité qui suit UNE commande) : ici le jeton vient de gestion (espace
+// membre, kind:'member'), vérifié via SESSION_SECRET partagé, et donne accès
+// à TOUTES les commandes passées avec l'email de l'adhérent connecté.
+async function getMemberOrders(request, env) {
+  const member = await requireMember(request, env);
+  if (!member) return json({ error: 'Non autorisé' }, 401);
+  const email = String(member.email).trim().toLowerCase();
+  const { results } = await env.DB.prepare(
+    `SELECT id, status, total, created_at FROM orders WHERE LOWER(TRIM(customer_email)) = ? ORDER BY created_at DESC`
+  ).bind(email).all();
+  return json({ data: results || [] });
+}
+
+async function getMemberOrderInvoice(request, env, params) {
+  const member = await requireMember(request, env);
+  if (!member) return json({ error: 'Non autorisé' }, 401);
+  const orderId = Number(params.id);
+  if (!Number.isInteger(orderId)) return json({ error: 'Commande introuvable' }, 404);
+  const order = await env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
+  const email = String(member.email).trim().toLowerCase();
+  // Un ID inexistant et une commande qui appartient à quelqu'un d'autre
+  // renvoient exactement la même réponse : on ne confirme jamais qu'un
+  // numéro de commande donné existe à quelqu'un qui n'en est pas le titulaire.
+  if (!order || String(order.customer_email || '').trim().toLowerCase() !== email) {
+    return json({ error: 'Commande introuvable' }, 404);
+  }
+  const { results: items } = await env.DB.prepare('SELECT * FROM order_items WHERE order_id = ?').bind(orderId).all();
+  const pdfBase64 = buildInvoicePdfBase64(order, items || []);
+  const bytes = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
+  return new Response(bytes, {
+    headers: securityHeaders({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="facture-affb-${String(order.id).padStart(6, '0')}.pdf"`,
+    }),
+  });
 }
 
 async function updateOrderStatus(request, env, params) {
