@@ -1364,7 +1364,7 @@
   '" data-size="' + escapeAttr(s) +
   '" data-stock="' + qty + '"' +
   (oos ? ' disabled' : '') +
-  ' onclick="selectSize(this, ' + JSON.stringify(String(s)) + ', ' + qty + ')">' +
+  ' onclick="selectSize(this, \'' + escapeAttr(String(s)) + '\', ' + qty + ')">' +
   escapeHtml(s) +
   '<span class="size-stock-badge' + (low ? ' low' : '') + '">' +
   (oos ? '✕' : qty) +
