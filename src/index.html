@@ -1266,14 +1266,24 @@
     const input = document.getElementById('productQty');
     const hint = document.getElementById('productQtyHint');
     if (!input || !hint) return;
+    const sizes = (currentModalProduct && Array.isArray(currentModalProduct.sizes)) ? currentModalProduct.sizes : [];
+    const needsSize = sizes.length > 0 && !selectedSize;
     const max = getAvailableQtyForCurrentSelection();
     input.max = Math.max(1, max || 1);
     let value = parseInt(input.value || '1', 10);
     if (value < 1) value = 1;
     if (max > 0 && value > max) value = max;
     input.value = value;
-    if (max <= 0) {
-      hint.textContent = 'Sélection indisponible pour le moment';
+
+    if (needsSize) {
+      // Aucune taille choisie pour l'instant : ce n'est pas une rupture, on ne
+      // répète donc pas de message d'alerte (déjà couvert par "Sélectionnez une taille").
+      const sizeStocks = (currentModalProduct.size_stocks && typeof currentModalProduct.size_stocks === 'object') ? currentModalProduct.size_stocks : {};
+      const allOut = sizes.every(function(s) { return Number(sizeStocks[s] ?? 0) <= 0; });
+      hint.textContent = allOut ? 'Rupture de stock sur toutes les tailles' : '';
+      hint.className = allOut ? 'qty-hint low' : 'qty-hint';
+    } else if (max <= 0) {
+      hint.textContent = 'Rupture de stock pour cette taille';
       hint.className = 'qty-hint low';
     } else if (max <= 3) {
       hint.textContent = 'Quantité limitée : ' + max + ' disponible(s)';
