@@ -1069,7 +1069,25 @@ async function getMemberOrders(request, env) {
   const { results } = await env.DB.prepare(
     `SELECT id, status, total, created_at FROM orders WHERE LOWER(TRIM(customer_email)) = ? ORDER BY created_at DESC`
   ).bind(email).all();
-  return json({ data: results || [] });
+  const orders = results || [];
+  if (!orders.length) return json({ data: [] });
+
+  // Détail des articles en une seule requête (plutôt qu'un aller-retour D1
+  // par commande), pour afficher le contenu de chaque commande côté membre
+  // sans obliger à télécharger la facture juste pour le savoir.
+  const ids = orders.map((o) => o.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const { results: items } = await env.DB.prepare(
+    `SELECT order_id, product_name, quantity, unit_price FROM order_items WHERE order_id IN (${placeholders})`
+  ).bind(...ids).all();
+  const itemsByOrder = new Map();
+  for (const item of items || []) {
+    if (!itemsByOrder.has(item.order_id)) itemsByOrder.set(item.order_id, []);
+    itemsByOrder.get(item.order_id).push({ product_name: item.product_name, quantity: item.quantity, unit_price: item.unit_price });
+  }
+  for (const order of orders) order.items = itemsByOrder.get(order.id) || [];
+
+  return json({ data: orders });
 }
 
 async function getMemberOrderInvoice(request, env, params) {
