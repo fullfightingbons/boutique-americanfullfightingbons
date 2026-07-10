@@ -501,6 +501,14 @@
     .listing-form-grid select,
     .listing-form-grid textarea { font-size: 16px; }
     #oName, #oEmail, #oPhone, #oNotes { font-size: 16px !important; }
+    nav { gap: 10px; }
+  }
+  @media (max-width: 480px) {
+    /* Sous cette largeur, logo + panier + burger textuels ne tiennent plus sur une ligne : on passe en icônes seules */
+    .nav-logo span { display: none; }
+    .nav-cart-label { display: none; }
+    .nav-cart { padding: .6rem .75rem; gap: 4px; }
+    nav { gap: 8px; padding: .6rem .6rem .6rem .7rem; }
   }
 
   /* CART NOTIFICATION */
@@ -515,6 +523,14 @@
   .cart-toast.show { transform: translateX(0); }
   .cart-toast.cart-info {
     border-left-color: var(--gold);
+  }
+  @media (max-width: 600px) {
+    .cart-toast {
+      left: 1rem; right: 1rem; bottom: 1rem;
+      text-align: center;
+      transform: translateY(200%);
+    }
+    .cart-toast.show { transform: translateY(0); }
   }
 
   /* MODAL PRODUIT */
@@ -531,6 +547,10 @@
     display: grid; grid-template-columns: 1fr 1fr;
   }
   @media (max-width: 600px) { .product-modal { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) {
+    .size-btn { min-width: 44px; min-height: 44px; padding: 10px; }
+    .product-modal-close { width: 40px; height: 40px; font-size: 18px; }
+  }
   .product-modal-img {
   background: var(--dark4);
   display: flex;
@@ -642,6 +662,24 @@
     border-top: 3px solid var(--gold);
     border-radius: var(--radius-lg);
     padding: 2rem;
+    /* Garde-fou : évite que le contenu déborde de l'écran (clavier virtuel, petits écrans) */
+    max-height: 90vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .order-modal-box {
+    /* Garde-fou : le bouton de validation reste toujours atteignable, même clavier ouvert */
+    max-height: 90vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .order-modal-close {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  @media (max-width: 600px) {
+    .order-modal-box, .success-card { padding: 1.5rem; }
+    .order-modal-close { width: 44px; height: 44px; top: .25rem !important; right: .25rem !important; }
   }
   .success-card h2 {
     line-height: .95;
@@ -816,7 +854,7 @@
   .listing-form-submit { width: 100%; justify-content: center; text-align: center; margin-top: .5rem; }
 
   /* Modal détail */
-  .listing-detail-modal { max-width: 600px; padding: 0; overflow: hidden; }
+  .listing-detail-modal { max-width: 600px; padding: 0; overflow-y: auto; overflow-x: hidden; }
   .listing-detail-img {
     width: 100%; aspect-ratio: 16/9; background: var(--dark2);
     display: flex; align-items: center; justify-content: center; font-size: 4rem;
@@ -868,7 +906,7 @@
     <li><a href="https://espace-membre.americanfullfightingbons.fr/">Espace membre</a></li>
   </ul>
   <button class="nav-cart" id="cartBtn">
-    &#128722; Panier <span id="cartCount" style="background:rgba(0,0,0,0.25);padding:2px 8px;font-size:12px;border-radius:999px;">0</span>
+    &#128722; <span class="nav-cart-label">Panier</span> <span id="cartCount" style="background:rgba(0,0,0,0.25);padding:2px 8px;font-size:12px;border-radius:999px;">0</span>
   </button>
   <button class="nav-burger" id="navBurger" aria-expanded="false" aria-controls="navMobilePanel" aria-label="Ouvrir le menu">
     <span></span>
@@ -1807,8 +1845,8 @@
 
 <!-- Modal commande -->
 <div id="orderModal" style="display:none;position:fixed;inset:0;background:rgba(7,17,29,.82);z-index:200;align-items:center;justify-content:center;padding:1rem">
-  <div style="background:var(--dark3);max-width:480px;width:100%;padding:2rem;position:relative;border-top:3px solid var(--red);border-radius:var(--radius-lg)">
-    <button onclick="closeOrderModal()" style="position:absolute;top:1rem;right:1rem;background:none;border:none;border-radius:50%;color:var(--gray);font-size:24px;cursor:pointer">✕</button>
+  <div class="order-modal-box" style="background:var(--dark3);max-width:480px;width:100%;padding:2rem;position:relative;border-top:3px solid var(--red);border-radius:var(--radius-lg)">
+    <button onclick="closeOrderModal()" class="order-modal-close" style="position:absolute;top:1rem;right:1rem;background:none;border:none;border-radius:50%;color:var(--gray);font-size:24px;cursor:pointer">✕</button>
     <div class="section-label" style="margin-bottom:.5rem">Finaliser</div>
     <h2 style="font-family:var(--font-display);font-size:28px;color:var(--white);margin-bottom:1.5rem">Votre commande</h2>
     <div id="modalCartLines" style="margin-bottom:1.5rem;font-size:14px;color:var(--gray)"></div>
