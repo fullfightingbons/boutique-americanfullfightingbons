@@ -185,8 +185,22 @@
 
   /* ── RESPONSIVE ── */
   @media (max-width: 700px) {
-    .admin-nav-btn { font-size: 11px; padding: 6px 10px; }
+    .admin-header { padding: 0 1rem; gap: 10px; }
+    .admin-nav { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 62vw; }
+    .admin-nav-btn { font-size: 11px; padding: 8px 10px; white-space: nowrap; flex-shrink: 0; min-height: 40px; }
     .admin-content { padding: 1rem; }
+    .form-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    /* Empêche le zoom automatique d'iOS Safari au focus (nécessite >=16px) */
+    .form-control { font-size: 16px; }
+    /* Cibles tactiles agrandies */
+    .btn { min-height: 40px; }
+    .btn-sm { min-height: 32px; }
+    #toast { left: 1rem; right: 1rem; bottom: 1rem; max-width: none; }
+    .modal { padding: 1.5rem; }
+  }
+  @media (max-width: 420px) {
+    .stats-grid { grid-template-columns: 1fr; }
   }
 
   .size-stock-row {

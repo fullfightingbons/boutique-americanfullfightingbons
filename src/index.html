@@ -109,6 +109,41 @@
   }
   .nav-cart:hover { transform: translateY(-1px); }
 
+  /* NAV MOBILE — bouton burger + panneau déroulant (remplace nav-links caché en dessous de 900px) */
+  .nav-burger {
+    display: none;
+    align-items: center; justify-content: center;
+    width: 44px; height: 44px; flex-shrink: 0;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 12px; cursor: pointer; color: var(--white);
+  }
+  .nav-burger span, .nav-burger span::before, .nav-burger span::after {
+    content: ""; display: block; width: 20px; height: 2px; background: var(--white);
+    border-radius: 2px; transition: transform .2s ease, opacity .2s ease;
+  }
+  .nav-burger span { position: relative; }
+  .nav-burger span::before { position: absolute; top: -6px; }
+  .nav-burger span::after { position: absolute; top: 6px; }
+  .nav-burger[aria-expanded="true"] span { background: transparent; }
+  .nav-burger[aria-expanded="true"] span::before { top: 0; transform: rotate(45deg); }
+  .nav-burger[aria-expanded="true"] span::after { top: 0; transform: rotate(-45deg); }
+  .nav-mobile-panel {
+    display: none;
+    max-width: 1180px; margin: .6rem auto 0;
+    background: rgba(7,17,29,.96); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 20px; padding: .6rem; backdrop-filter: blur(16px);
+    box-shadow: 0 14px 42px rgba(7,17,29,.35);
+  }
+  .nav-mobile-panel.open { display: block; }
+  .nav-mobile-panel ul { list-style: none; display: flex; flex-direction: column; gap: 2px; }
+  .nav-mobile-panel a {
+    display: flex; align-items: center; min-height: 48px; padding: .6rem 1rem;
+    color: rgba(255,255,255,.86); text-decoration: none; font-size: 1rem; font-weight: 500;
+    border-radius: 12px;
+  }
+  .nav-mobile-panel a:active, .nav-mobile-panel a:hover { background: rgba(255,255,255,.08); color: var(--white); }
+  .nav-mobile-panel a[aria-current="page"] { color: var(--gold-light); }
+
   /* HERO */
   .hero {
     min-height: 100vh; display: flex; align-items: center;
@@ -447,6 +482,7 @@
     .size-filter-row { justify-content: flex-start; }
     .reassurance-grid { grid-template-columns: 1fr; }
     .nav-links { display: none; }
+    .nav-burger { display: flex; }
   }
   @media (max-width: 600px) {
     .hero-stats { gap: 1.5rem; }
@@ -458,6 +494,12 @@
     section { padding: 4rem 1.5rem; }
     .nav-wrap { padding: .75rem .85rem 0; }
     nav { padding: .6rem .7rem .6rem .85rem; min-height: 0; }
+    /* Empêche le zoom automatique d'iOS Safari au focus (nécessite >=16px) */
+    .catalog-search,
+    .listing-form-grid input,
+    .listing-form-grid select,
+    .listing-form-grid textarea { font-size: 16px; }
+    #oName, #oEmail, #oPhone, #oNotes { font-size: 16px !important; }
   }
 
   /* CART NOTIFICATION */
@@ -827,7 +869,21 @@
   <button class="nav-cart" id="cartBtn">
     &#128722; Panier <span id="cartCount" style="background:rgba(0,0,0,0.25);padding:2px 8px;font-size:12px;border-radius:999px;">0</span>
   </button>
+  <button class="nav-burger" id="navBurger" aria-expanded="false" aria-controls="navMobilePanel" aria-label="Ouvrir le menu">
+    <span></span>
+  </button>
 </nav>
+<div class="nav-mobile-panel" id="navMobilePanel">
+  <ul>
+    <li><a href="#produits">Produits</a></li>
+    <li><a href="#occasion">Occasion</a></li>
+    <li><a href="https://americanfullfightingbons.fr/">Club</a></li>
+    <li><a href="https://inscription.americanfullfightingbons.fr/">Inscription</a></li>
+    <li><a href="https://calendrier.americanfullfightingbons.fr/">Calendrier</a></li>
+    <li><a href="https://boutique.americanfullfightingbons.fr/" aria-current="page">Boutique</a></li>
+    <li><a href="https://espace-membre.americanfullfightingbons.fr/">Espace membre</a></li>
+  </ul>
+</div>
 </div>
 
 <!-- HERO -->
@@ -1660,6 +1716,22 @@
       if (e.target === this) closeOrderModal();
     });
     handlePaymentReturn();
+
+    // Menu mobile (burger)
+    const navBurger = document.getElementById('navBurger');
+    const navPanel = document.getElementById('navMobilePanel');
+    navBurger.addEventListener('click', function() {
+      const isOpen = navPanel.classList.toggle('open');
+      navBurger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      navBurger.setAttribute('aria-label', isOpen ? 'Fermer le menu' : 'Ouvrir le menu');
+    });
+    navPanel.addEventListener('click', function(e) {
+      if (e.target.tagName === 'A') {
+        navPanel.classList.remove('open');
+        navBurger.setAttribute('aria-expanded', 'false');
+        navBurger.setAttribute('aria-label', 'Ouvrir le menu');
+      }
+    });
   });
 
   function handlePaymentReturn() {
