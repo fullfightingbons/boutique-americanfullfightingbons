@@ -186,7 +186,9 @@ function securityHeaders(base = {}) {
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self' https://api.helloasso.com https://api.brevo.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    // preload : ne pas activer tant que le domaine n'est pas soumis à hstspreload.org
+    'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://api.helloasso.com https://api.brevo.com https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     ...base,
   };
 }
@@ -366,6 +368,57 @@ async function checkInternalSyncAuth(request, env) {
   if (!env.BOUTIQUE_SYNC_TOKEN) return { ok: false, reason: 'sync token missing' };
   const token = request.headers.get('X-Inventory-Token') || '';
   return { ok: await secureCompare(token, env.BOUTIQUE_SYNC_TOKEN) };
+}
+
+// ── Anti-bot (Cloudflare Turnstile) ─────────────────────────────────────
+// Protège les formulaires publics (commande, dépôt d'annonce) contre le
+// spam automatisé. TURNSTILE_SECRET_KEY est un secret Cloudflare (jamais
+// commité) ; la clé de site correspondante (non secrète) est codée en dur
+// côté front dans index.html.
+async function verifyTurnstile(token, env, ip) {
+  if (!env.TURNSTILE_SECRET_KEY) {
+    console.error('[turnstile] TURNSTILE_SECRET_KEY manquant côté serveur — vérification refusée par défaut.');
+    return false;
+  }
+  if (!token || typeof token !== 'string') return false;
+  const body = new URLSearchParams();
+  body.set('secret', env.TURNSTILE_SECRET_KEY);
+  body.set('response', token);
+  if (ip && ip !== 'unknown') body.set('remoteip', ip);
+  try {
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    const data = await res.json();
+    return data?.success === true;
+  } catch (err) {
+    console.error('[turnstile] Vérification impossible (réseau ?)', err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
+// ── Validation d'image par signature réelle (magic bytes) ──────────────
+// Ne fait pas confiance au Content-Type déclaré par le client : lit les
+// premiers octets du fichier pour déterminer son vrai format.
+function detectImageSignature(bytes) {
+  if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+    return 'image/jpeg';
+  }
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47
+      && bytes[4] === 0x0D && bytes[5] === 0x0A && bytes[6] === 0x1A && bytes[7] === 0x0A) {
+    return 'image/png';
+  }
+  if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+      && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+    return 'image/webp';
+  }
+  if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38
+      && (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61) {
+    return 'image/gif';
+  }
+  return null;
 }
 
 async function sha256Hex(value) {
@@ -778,13 +831,18 @@ async function uploadImage(request, env, params) {
       return json({ error: 'Format non supporté (jpg, png, webp, gif)' }, 400);
     }
 
-    const ext  = file.type.split('/')[1].replace('jpeg', 'jpg');
-    const key  = `products/${params.id}-${Date.now()}.${ext}`;
     const buffer = await file.arrayBuffer();
+    const signature = detectImageSignature(new Uint8Array(buffer.slice(0, 12)));
+    if (!signature || !allowedTypes.includes(signature)) {
+      return json({ error: 'Fichier invalide : le contenu ne correspond pas à une image jpg/png/webp/gif' }, 400);
+    }
+
+    const ext  = signature.split('/')[1].replace('jpeg', 'jpg');
+    const key  = `products/${params.id}-${Date.now()}.${ext}`;
 
     // Si binding R2 disponible
     if (env.R2_BUCKET) {
-      await env.R2_BUCKET.put(key, buffer, { httpMetadata: { contentType: file.type } });
+      await env.R2_BUCKET.put(key, buffer, { httpMetadata: { contentType: signature } });
       // URL interne servie par la route GET /images/:key
       const imageUrl = `/images/${key}`;
       await env.DB.prepare("UPDATE products SET image_url = ?, updated_at = datetime('now') WHERE id = ?")
@@ -800,7 +858,7 @@ async function uploadImage(request, env, params) {
       binary += String.fromCharCode(...uint8.subarray(i, i + chunkSize));
     }
     const b64 = btoa(binary);
-    const dataUrl = `data:${file.type};base64,${b64}`;
+    const dataUrl = `data:${signature};base64,${b64}`;
     await env.DB.prepare('UPDATE products SET image_url = ?, updated_at = datetime(\'now\') WHERE id = ?')
       .bind(dataUrl, params.id).run();
     return json({ success: true, image_url: dataUrl });
@@ -969,6 +1027,9 @@ async function applyExternalStockSync(request, env) {
 
 async function createOrder(request, env) {
   const body = await request.json();
+  if (!(await verifyTurnstile(body.turnstile_token, env, getClientIp(request)))) {
+    return json({ error: 'Vérification anti-robot invalide ou expirée, merci de réessayer.' }, 403);
+  }
   const customer_name = normalizeText(body.customer_name, 160);
   const customer_email = normalizeEmail(body.customer_email);
   const customer_phone = normalizeText(body.customer_phone, 40) || null;
@@ -2022,6 +2083,9 @@ async function getListing(_req, env, params) {
 // POST /api/listings — soumission publique d'une annonce (en attente de validation)
 async function createListing(request, env) {
   const body = await request.json();
+  if (!(await verifyTurnstile(body.turnstile_token, env, getClientIp(request)))) {
+    return json({ error: 'Vérification anti-robot invalide ou expirée, merci de réessayer.' }, 403);
+  }
   const title        = normalizeText(body.title, 160);
   const description  = normalizeMultilineText(body.description, 1000) || null;
   const price        = Number(body.price);
@@ -2070,11 +2134,18 @@ async function uploadListingImage(request, env, params) {
     return json({ error: 'Image trop lourde (max 5 Mo)' }, 400);
   }
 
-  const ext    = file.type.split('/')[1].replace('jpeg', 'jpg');
+  // Ne pas se fier au seul Content-Type déclaré par le client : on vérifie
+  // la signature réelle des premiers octets du fichier.
+  const signature = detectImageSignature(new Uint8Array(buffer.slice(0, 12)));
+  if (!signature || !allowedTypes.includes(signature)) {
+    return json({ error: 'Fichier invalide : le contenu ne correspond pas à une image jpg/png/webp' }, 400);
+  }
+
+  const ext    = signature.split('/')[1].replace('jpeg', 'jpg');
   const key    = `listings/${params.id}-${Date.now()}.${ext}`;
 
   if (env.R2_BUCKET) {
-    await env.R2_BUCKET.put(key, buffer, { httpMetadata: { contentType: file.type } });
+    await env.R2_BUCKET.put(key, buffer, { httpMetadata: { contentType: signature } });
     const imageUrl = `/images/${key}`;
     await env.DB.prepare("UPDATE listings SET image_url = ?, updated_at = datetime('now') WHERE id = ?")
       .bind(imageUrl, params.id).run();
@@ -2088,7 +2159,7 @@ async function uploadListingImage(request, env, params) {
   for (let i = 0; i < uint8.length; i += chunkSize) {
     binary += String.fromCharCode(...uint8.subarray(i, i + chunkSize));
   }
-  const dataUrl = `data:${file.type};base64,${btoa(binary)}`;
+  const dataUrl = `data:${signature};base64,${btoa(binary)}`;
   await env.DB.prepare("UPDATE listings SET image_url = ?, updated_at = datetime('now') WHERE id = ?")
     .bind(dataUrl, params.id).run();
   return json({ success: true, image_url: dataUrl });
