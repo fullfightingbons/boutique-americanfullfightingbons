@@ -20,6 +20,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet"/>
 <style>
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .sr-only {
@@ -1593,7 +1594,7 @@
       return '<div class="product-card" data-cat="' + escapeAttr(p.category) + '" onclick="openProductById(' + pId + ')">' +
         '<div class="product-img">' +
         (safeImageSrc(p.image_url)
-          ? '<img src="' + escapeAttr(safeImageSrc(p.image_url)) + '" alt="' + escapeAttr(p.name || '') + '" onerror="this.style.display=\'none\'"/>'
+          ? '<img src="' + escapeAttr(safeImageSrc(p.image_url)) + '" alt="' + escapeAttr(p.name || '') + '" loading="lazy" decoding="async" onerror="this.style.display=\'none\'"/>'
           : '<div class="product-emoji">' + escapeHtml(p.emoji||'📦') + '</div>') +
         (p.badge ? '<span class="product-badge' + (p.badge==='Nouveau'?' new':'') + '">' + escapeHtml(p.badge) + '</span>' : '') +
         '<span class="product-stock-flag ' + stockFlag.className + '">' + escapeHtml(stockFlag.label) + '</span>' +
