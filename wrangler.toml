@@ -26,6 +26,7 @@ bucket_name = "affb-images"
 # Secrets à définir via wrangler secret put ou GitHub Secrets :
 #   HELLOASSO_CLIENT_SECRET
 #   BREVO_API_KEY
+#   TURNSTILE_SECRET_KEY   (protège /api/orders et /api/listings du spam)
 
 [vars]
 ENVIRONMENT = "production"

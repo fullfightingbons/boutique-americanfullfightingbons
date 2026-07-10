@@ -26,6 +26,13 @@ bucket_name = "affb-images"
 # Secrets à définir via wrangler secret put ou GitHub Secrets :
 #   HELLOASSO_CLIENT_SECRET
 #   BREVO_API_KEY
+#   TURNSTILE_SECRET_KEY   (clé secrète Turnstile — protège /api/orders et
+#                            /api/listings contre le spam automatisé ;
+#                            cf. dashboard Cloudflare > Turnstile. La clé de
+#                            SITE, elle, n'est pas secrète : elle est codée
+#                            en dur côté front dans src/index.html, à
+#                            remplacer avant mise en prod — voir commentaire
+#                            TURNSTILE_SITE_KEY dans ce fichier)
 
 [vars]
 ENVIRONMENT = "production"
