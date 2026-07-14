@@ -20,7 +20,7 @@
     --font-body: 'Inter', sans-serif;
   }
   html { scroll-behavior: smooth; }
-  body { background: var(--dark); color: var(--light); font-family: var(--font-body); font-size: 15px; }
+  body { background: var(--dark); color: var(--light); font-family: var(--font-body); font-size: 15px; overflow-x: hidden; }
 
   /* ── LOGIN ── */
   #loginScreen {
@@ -47,9 +47,12 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 2rem; height: 60px;
   }
-  .admin-logo { font-family: var(--font-display); font-weight: 900; font-size: 18px; text-transform: uppercase; color: var(--white); letter-spacing: 0.04em; }
+  .admin-logo {
+    font-family: var(--font-display); font-weight: 900; font-size: 18px; text-transform: uppercase; color: var(--white); letter-spacing: 0.04em;
+    min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .admin-logo span { color: var(--red); }
-  .admin-nav { display: flex; gap: 4px; }
+  .admin-nav { display: flex; gap: 4px; flex-shrink: 0; }
   .admin-nav-btn {
     padding: 6px 16px; background: transparent; border: none;
     color: var(--gray); font-family: var(--font-body); font-size: 13px;
@@ -187,6 +190,7 @@
   /* ── RESPONSIVE ── */
   @media (max-width: 700px) {
     .admin-header { padding: 0 1rem; gap: 10px; }
+    .admin-logo { font-size: 13px; }
     .admin-nav { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 62vw; }
     .admin-nav-btn { font-size: 11px; padding: 8px 10px; white-space: nowrap; flex-shrink: 0; min-height: 40px; }
     .admin-content { padding: 1rem; }
@@ -202,6 +206,10 @@
   }
   @media (max-width: 420px) {
     .stats-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 520px) {
+    /* Détail commande : passe en 1 colonne pour éviter un texte trop compressé */
+    .order-detail-grid { grid-template-columns: 1fr; }
   }
 
   .size-stock-row {
@@ -403,8 +411,8 @@
       <div class="admin-section-title">
         Catalogue
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <input id="productSearch" type="text" class="form-control" style="max-width:240px;padding:6px 12px;font-size:13px" placeholder="Rechercher…" oninput="filterProductTable()"/>
-          <select id="productStockFilter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px" onchange="filterProductTable()">
+          <input id="productSearch" type="text" class="form-control" style="max-width:240px;padding:6px 12px" placeholder="Rechercher…" oninput="filterProductTable()"/>
+          <select id="productStockFilter" class="form-control" style="width:auto;padding:6px 12px" onchange="filterProductTable()">
             <option value="all">Tous les stocks</option>
             <option value="low_global">Stock global faible</option>
             <option value="low_size">Taille critique</option>
@@ -427,7 +435,7 @@
       <div class="admin-section-title">
         Commandes
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <select id="orderStatusFilter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px" onchange="loadOrders()">
+          <select id="orderStatusFilter" class="form-control" style="width:auto;padding:6px 12px" onchange="loadOrders()">
             <option value="">Tous les statuts</option>
             <option value="pending">En attente</option>
             <option value="confirmed">Confirmées</option>
@@ -452,7 +460,7 @@
       <div class="admin-section-title">
         Annonces d'occasion
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <select id="listingStatusFilter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px" onchange="loadListings()">
+          <select id="listingStatusFilter" class="form-control" style="width:auto;padding:6px 12px" onchange="loadListings()">
             <option value="">Tous les statuts</option>
             <option value="pending" selected>En attente</option>
             <option value="active">Publiées</option>
@@ -1205,7 +1213,7 @@ async function viewOrder(id) {
   const statuses = ['pending_payment','payment_failed','confirmed','shipped','delivered','cancelled'];
 
   document.getElementById('orderModalContent').innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;font-size:14px">
+    <div class="order-detail-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;font-size:14px">
       <div>
         <div style="color:var(--gray);font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Client</div>
         <div><strong>${escapeHtml(data.customer_name)}</strong></div>

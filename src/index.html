@@ -884,6 +884,17 @@
     .listing-form-grid { grid-template-columns: 1fr; }
     .listing-detail-body { padding: 1.25rem; }
     .listing-modal { padding: 1.5rem; }
+    /* Cible tactile agrandie pour le bouton de fermeture des modales annonces */
+    .listing-modal-close { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; padding: 0; top: .5rem; right: .5rem; }
+  }
+
+  /* Lignes du panier (modal de commande) */
+  .cart-line-remove { background: none; border: none; color: var(--red); cursor: pointer; font-size: 18px; padding: 4px 6px; line-height: 1; }
+  .cart-qty-btn { width: 28px; height: 28px; background: var(--dark4); border: 1px solid rgba(255,255,255,.12); color: var(--white); cursor: pointer; }
+  @media (max-width: 600px) {
+    /* Cibles tactiles agrandies pour les boutons +/- et suppression du panier */
+    .cart-qty-btn { width: 40px; height: 40px; font-size: 16px; }
+    .cart-line-remove { padding: 10px; font-size: 20px; }
   }
 </style>
 </head>
@@ -1301,13 +1312,13 @@
               <div style="font-size:12px;color:var(--gray)">${item.price.toFixed(2)}€ / unité</div>
               <div style="font-size:11px;color:${max <= 3 ? 'var(--gold-light)' : 'var(--gray)'};margin-top:4px">${escapeHtml(stockText)}</div>
             </div>
-            <button onclick="removeCartItem('${escapeAttr(item._key)}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:18px">✕</button>
+            <button onclick="removeCartItem('${escapeAttr(item._key)}')" class="cart-line-remove" aria-label="Retirer l'article">✕</button>
           </div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
             <div style="display:flex;align-items:center;gap:8px">
-              <button onclick="updateCartQty('${escapeAttr(item._key)}', -1)" style="width:28px;height:28px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);cursor:pointer">−</button>
+              <button onclick="updateCartQty('${escapeAttr(item._key)}', -1)" class="cart-qty-btn" aria-label="Diminuer la quantité">−</button>
               <span style="min-width:20px;text-align:center;color:var(--white)">${item.quantity}</span>
-              <button onclick="updateCartQty('${escapeAttr(item._key)}', 1)" style="width:28px;height:28px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);color:var(--white);cursor:${item.quantity >= max ? 'not-allowed' : 'pointer'};opacity:${item.quantity >= max ? '.4' : '1'}" ${item.quantity >= max ? 'disabled' : ''}>+</button>
+              <button onclick="updateCartQty('${escapeAttr(item._key)}', 1)" class="cart-qty-btn" style="cursor:${item.quantity >= max ? 'not-allowed' : 'pointer'};opacity:${item.quantity >= max ? '.4' : '1'}" ${item.quantity >= max ? 'disabled' : ''} aria-label="Augmenter la quantité">+</button>
             </div>
             <div style="color:var(--white);font-weight:600">${(item.price * item.quantity).toFixed(2)}€</div>
           </div>
