@@ -1568,6 +1568,63 @@ async function sendListingNotification(env, listing) {
   return { attempted: true, sent: true, recipient: recipientEmail };
 }
 
+// ── Brevo — Accusé de réception envoyé au vendeur ─────────────────
+async function sendListingConfirmationToSeller(env, listing) {
+  if (!env.BREVO_API_KEY) {
+    console.warn('BREVO_API_KEY manquant : confirmation vendeur non envoyée');
+    return { attempted: false, sent: false };
+  }
+
+  const priceLabel = Number(listing.price).toFixed(2).replace('.', ',') + ' €';
+  const categoryLabel = LISTING_CATEGORY_LABELS[listing.category] || listing.category;
+  const conditionLabel = LISTING_CONDITION_LABELS[listing.condition] || listing.condition;
+
+  const emailPayload = {
+    sender: {
+      name:  env.BREVO_FROM_NAME  || 'AFFB Boutique',
+      email: env.BREVO_FROM_EMAIL || MAIL_SENDER_EMAIL,
+    },
+    to: [{ email: listing.contact_email, name: listing.contact_name }],
+    subject: `Votre annonce « ${listing.title} » a bien été reçue`,
+    htmlContent: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#222">
+        <h2 style="color:#C8181A">Annonce bien reçue !</h2>
+        <p>Bonjour ${escapeHtml(listing.contact_name)},</p>
+        <p>Nous avons bien reçu votre annonce sur la boutique AFFB. Elle est actuellement
+           <strong>en attente de validation</strong> par le club et sera mise en ligne dès
+           qu'un administrateur l'aura vérifiée.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0">
+          <tr><td style="padding:6px 0;font-weight:bold;width:140px">Titre</td><td>${escapeHtml(listing.title)}</td></tr>
+          <tr><td style="padding:6px 0;font-weight:bold">Prix</td><td>${priceLabel}</td></tr>
+          <tr><td style="padding:6px 0;font-weight:bold">Catégorie</td><td>${categoryLabel}</td></tr>
+          <tr><td style="padding:6px 0;font-weight:bold">État</td><td>${conditionLabel}</td></tr>
+        </table>
+        <p>Vous n'avez rien d'autre à faire pour le moment. Si votre annonce est refusée
+           ou nécessite une modification, le club vous contactera directement à cette adresse.</p>
+        <p style="margin-top:24px">
+          Pour toute question : <a href="mailto:${CLUB_CONTACT_EMAIL}" style="color:#C8181A">${CLUB_CONTACT_EMAIL}</a>
+        </p>
+      </div>
+    `,
+  };
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key':      env.BREVO_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(emailPayload),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brevo error ${res.status}: ${err}`);
+  }
+
+  return { attempted: true, sent: true, recipient: listing.contact_email };
+}
+
 async function finalizePaidOrder(env, orderId, helloAssoIntent) {
   const order = await env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
   if (!order) throw new Error('Commande introuvable');
@@ -2187,22 +2244,28 @@ async function createListing(request, env) {
   ).bind(title, description, price, category, condition, contact_name, contact_email, contact_phone).run();
 
   const listingId = result.meta.last_row_id;
+  const listingData = {
+    id: listingId,
+    title,
+    description,
+    price,
+    category,
+    condition,
+    contact_name,
+    contact_email,
+    contact_phone,
+  };
 
-  // Notification Brevo au club (best-effort : ne doit jamais faire échouer le dépôt)
-  try {
-    await sendListingNotification(env, {
-      id: listingId,
-      title,
-      description,
-      price,
-      category,
-      condition,
-      contact_name,
-      contact_email,
-      contact_phone,
-    });
-  } catch (err) {
-    console.error('Brevo listing notification failed:', err);
+  // Notifications Brevo (best-effort : ne doivent jamais faire échouer le dépôt)
+  const [clubResult, sellerResult] = await Promise.allSettled([
+    sendListingNotification(env, listingData),
+    sendListingConfirmationToSeller(env, listingData),
+  ]);
+  if (clubResult.status === 'rejected') {
+    console.error('Brevo listing notification (club) failed:', clubResult.reason);
+  }
+  if (sellerResult.status === 'rejected') {
+    console.error('Brevo listing confirmation (vendeur) failed:', sellerResult.reason);
   }
 
   return json({ success: true, id: listingId, status: 'pending' }, 201);
