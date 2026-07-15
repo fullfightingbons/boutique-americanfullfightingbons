@@ -1489,6 +1489,85 @@ async function sendInvoiceForOrder(env, orderId) {
   return { attempted: true, sent: true, recipients };
 }
 
+// ── Brevo — Notification au club lors du dépôt d'une annonce ─────
+const LISTING_CATEGORY_LABELS = {
+  gants:        'Gants',
+  protections:  'Protections',
+  tenues:       'Tenues',
+  accessoires:  'Accessoires',
+  divers:       'Divers',
+};
+const LISTING_CONDITION_LABELS = {
+  neuf:      'Neuf',
+  tres_bon:  'Très bon état',
+  bon:       'Bon état',
+  correct:   'État correct',
+};
+
+async function sendListingNotification(env, listing) {
+  if (!env.BREVO_API_KEY) {
+    console.warn('BREVO_API_KEY manquant : notification annonce non envoyée');
+    return { attempted: false, sent: false };
+  }
+
+  const recipientEmail = env.BREVO_CLUB_EMAIL || CLUB_CONTACT_EMAIL;
+  const adminUrl = 'https://boutique.americanfullfightingbons.fr/admin.html';
+
+  const priceLabel = Number(listing.price).toFixed(2).replace('.', ',') + ' €';
+  const categoryLabel = LISTING_CATEGORY_LABELS[listing.category] || listing.category;
+  const conditionLabel = LISTING_CONDITION_LABELS[listing.condition] || listing.condition;
+  const descriptionHtml = listing.description
+    ? escapeHtml(listing.description).replace(/\n/g, '<br>')
+    : '<em>(aucune description)</em>';
+
+  const emailPayload = {
+    sender: {
+      name:  env.BREVO_FROM_NAME  || 'AFFB Boutique',
+      email: env.BREVO_FROM_EMAIL || MAIL_SENDER_EMAIL,
+    },
+    to: [{ email: recipientEmail, name: 'Club AFFB' }],
+    subject: `Nouvelle annonce à valider — ${listing.title}`,
+    htmlContent: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#222">
+        <h2 style="color:#C8181A">Nouvelle annonce déposée</h2>
+        <p>Une annonce vient d'être soumise sur la boutique et attend validation.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0">
+          <tr><td style="padding:6px 0;font-weight:bold;width:140px">Titre</td><td>${escapeHtml(listing.title)}</td></tr>
+          <tr><td style="padding:6px 0;font-weight:bold">Prix</td><td>${priceLabel}</td></tr>
+          <tr><td style="padding:6px 0;font-weight:bold">Catégorie</td><td>${categoryLabel}</td></tr>
+          <tr><td style="padding:6px 0;font-weight:bold">État</td><td>${conditionLabel}</td></tr>
+          <tr><td style="padding:6px 0;font-weight:bold">Vendeur</td><td>${escapeHtml(listing.contact_name)}</td></tr>
+          <tr><td style="padding:6px 0;font-weight:bold">Email</td><td>${escapeHtml(listing.contact_email)}</td></tr>
+          <tr><td style="padding:6px 0;font-weight:bold">Téléphone</td><td>${listing.contact_phone ? escapeHtml(listing.contact_phone) : '—'}</td></tr>
+        </table>
+        <p style="font-weight:bold">Description</p>
+        <p>${descriptionHtml}</p>
+        <p style="margin-top:24px">
+          <a href="${adminUrl}" style="background:#C8181A;color:#fff;padding:10px 18px;border-radius:4px;text-decoration:none">
+            Valider dans l'admin
+          </a>
+        </p>
+      </div>
+    `,
+  };
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key':      env.BREVO_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(emailPayload),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brevo error ${res.status}: ${err}`);
+  }
+
+  return { attempted: true, sent: true, recipient: recipientEmail };
+}
+
 async function finalizePaidOrder(env, orderId, helloAssoIntent) {
   const order = await env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
   if (!order) throw new Error('Commande introuvable');
@@ -2107,7 +2186,26 @@ async function createListing(request, env) {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
   ).bind(title, description, price, category, condition, contact_name, contact_email, contact_phone).run();
 
-  return json({ success: true, id: result.meta.last_row_id, status: 'pending' }, 201);
+  const listingId = result.meta.last_row_id;
+
+  // Notification Brevo au club (best-effort : ne doit jamais faire échouer le dépôt)
+  try {
+    await sendListingNotification(env, {
+      id: listingId,
+      title,
+      description,
+      price,
+      category,
+      condition,
+      contact_name,
+      contact_email,
+      contact_phone,
+    });
+  } catch (err) {
+    console.error('Brevo listing notification failed:', err);
+  }
+
+  return json({ success: true, id: listingId, status: 'pending' }, 201);
 }
 
 // POST /api/listings/:id/image — upload image d'annonce (public, avant validation admin)
