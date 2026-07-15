@@ -1298,6 +1298,38 @@ async function getHelloAssoCheckoutIntent(env, checkoutIntentId) {
   return payload;
 }
 
+// HelloAsso rejette le firstName/lastName transmis s'ils : ont 1 seul
+// caractère, n'ont aucune voyelle, contiennent un chiffre, sont une valeur
+// générique ("test", "unknown", "nom", "prénom", ...), ou si prénom == nom.
+// Cf. https://dev.helloasso.com/docs/intégrer-le-paiement-sur-votre-site
+const HELLOASSO_FORBIDDEN_NAME_VALUES = new Set([
+  'firstname', 'lastname', 'unknown', 'first_name', 'last_name',
+  'anonyme', 'user', 'admin', 'name', 'nom', 'prenom', 'prénom', 'test',
+]);
+
+function isValidHelloAssoNamePart(value) {
+  if (!value || value.length < 2) return false;
+  if (/\d/.test(value)) return false;
+  if (!/[aeiouyAEIOUY]/.test(value)) return false;
+  if (HELLOASSO_FORBIDDEN_NAME_VALUES.has(value.toLowerCase())) return false;
+  // Autorisé : lettres latines (+ accents), espace, apostrophe, tiret
+  if (!/^[A-Za-zÀ-ÖØ-öø-ÿ' -]+$/.test(value)) return false;
+  return true;
+}
+
+function buildHelloAssoPayer(customerName, customerEmail) {
+  const parts = String(customerName || '').trim().split(/\s+/).filter(Boolean);
+  let firstName = parts[0] || '';
+  let lastName = parts.slice(1).join(' ');
+
+  if (!isValidHelloAssoNamePart(lastName)) lastName = 'Adhérent';
+  if (!isValidHelloAssoNamePart(firstName)) firstName = 'Client';
+  // Le prénom et le nom ne doivent pas être identiques
+  if (firstName.toLowerCase() === lastName.toLowerCase()) lastName = 'Adhérent';
+
+  return { firstName, lastName, email: customerEmail };
+}
+
 // POST /api/checkout/:orderId
 // Crée un checkout HelloAsso et retourne l'URL de paiement
 async function createCheckout(request, env, params) {
@@ -1331,11 +1363,7 @@ async function createCheckout(request, env, params) {
     errorUrl:  buildCheckoutReturnUrl(env.HELLOASSO_ERROR_URL || env.HELLOASSO_RETURN_URL || 'https://boutique.americanfullfightingbons.fr/', order.id, 'failed'),
     returnUrl: callbackUrl.toString(),
     containsDonation: false,
-    payer: {
-      firstName: order.customer_name.split(' ')[0] || order.customer_name,
-      lastName:  order.customer_name.split(' ').slice(1).join(' ') || '.',
-      email:     order.customer_email,
-    },
+    payer: buildHelloAssoPayer(order.customer_name, order.customer_email),
     metadata: {
       orderId: String(order.id),
     },
