@@ -474,42 +474,6 @@
   ::-webkit-scrollbar-track { background: var(--dark2); }
   ::-webkit-scrollbar-thumb { background: var(--dark4); }
 
-  /* RESPONSIVE */
-  @media (max-width: 900px) {
-    .featured { grid-template-columns: 1fr; }
-    .featured-visual { min-height: 300px; }
-    .footer-grid { grid-template-columns: 1fr 1fr; }
-    .catalog-toolbar { grid-template-columns: 1fr; }
-    .size-filter-row { justify-content: flex-start; }
-    .reassurance-grid { grid-template-columns: 1fr; }
-    .nav-links { display: none; }
-    .nav-burger { display: flex; }
-  }
-  @media (max-width: 600px) {
-    .hero-stats { gap: 1.5rem; }
-    .footer-grid { grid-template-columns: 1fr; }
-    .products-meta { flex-direction: column; align-items: flex-start; }
-    .success-meta { grid-template-columns: 1fr; }
-    .btn-outline { margin-left: 0; margin-top: 0.75rem; }
-    .hero-content { padding: 0 1.5rem; }
-    section { padding: 4rem 1.5rem; }
-    .nav-wrap { padding: .75rem .85rem 0; }
-    nav { padding: .6rem .7rem .6rem .85rem; min-height: 0; }
-    /* Empêche le zoom automatique d'iOS Safari au focus (nécessite >=16px) */
-    .catalog-search,
-    .listing-form-grid input,
-    .listing-form-grid select,
-    .listing-form-grid textarea { font-size: 16px; }
-    #oName, #oEmail, #oPhone, #oNotes { font-size: 16px !important; }
-    nav { gap: 10px; }
-  }
-  @media (max-width: 480px) {
-    /* Sous cette largeur, logo + panier + burger textuels ne tiennent plus sur une ligne : on passe en icônes seules */
-    .nav-logo span { display: none; }
-    .nav-cart-label { display: none; }
-    .nav-cart { padding: .6rem .75rem; gap: 4px; }
-    nav { gap: 8px; padding: .6rem .6rem .6rem .7rem; }
-  }
 
   /* CART NOTIFICATION */
   .cart-toast {
@@ -545,11 +509,6 @@
     border-top: 3px solid var(--red); border-radius: var(--radius-lg); position: relative;
     max-height: 92vh; overflow-y: auto; overflow-x: hidden;
     display: grid; grid-template-columns: 1fr 1fr;
-  }
-  @media (max-width: 600px) { .product-modal { grid-template-columns: 1fr; } }
-  @media (max-width: 600px) {
-    .size-btn { min-width: 44px; min-height: 44px; padding: 10px; }
-    .product-modal-close { width: 40px; height: 40px; font-size: 18px; }
   }
   .product-modal-img {
   background: var(--dark4);
@@ -895,6 +854,54 @@
     /* Cibles tactiles agrandies pour les boutons +/- et suppression du panier */
     .cart-qty-btn { width: 40px; height: 40px; font-size: 16px; }
     .cart-line-remove { padding: 10px; font-size: 20px; }
+  }
+
+  /* RESPONSIVE
+     Ce bloc est volontairement placé tout en bas de la feuille de style :
+     plusieurs des règles de base qu'il doit surcharger (.reassurance-grid,
+     .success-meta, .listing-form-grid input, .size-btn, .product-modal-close...)
+     sont définies plus haut dans ce fichier mais APRÈS ce bloc dans le code
+     source d'origine. En CSS, à spécificité égale, c'est la règle la plus
+     basse dans le fichier qui gagne : ces correctifs mobile étaient donc
+     silencieusement ignorés par le navigateur, quelle que soit la largeur
+     d'écran (ex : la grille "réassurance" restait sur 3 colonnes et débordait
+     de l'écran sur mobile). Garder ce bloc en dernier évite ce piège. */
+  @media (max-width: 900px) {
+    .featured { grid-template-columns: 1fr; }
+    .featured-visual { min-height: 300px; }
+    .footer-grid { grid-template-columns: 1fr 1fr; }
+    .catalog-toolbar { grid-template-columns: 1fr; }
+    .size-filter-row { justify-content: flex-start; }
+    .reassurance-grid { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+    .nav-burger { display: flex; }
+  }
+  @media (max-width: 600px) {
+    .hero-stats { gap: 1.5rem; }
+    .footer-grid { grid-template-columns: 1fr; }
+    .products-meta { flex-direction: column; align-items: flex-start; }
+    .success-meta { grid-template-columns: 1fr; }
+    .btn-outline { margin-left: 0; margin-top: 0.75rem; }
+    .hero-content { padding: 0 1.5rem; }
+    section { padding: 4rem 1.5rem; }
+    .nav-wrap { padding: .75rem .85rem 0; }
+    nav { padding: .6rem .7rem .6rem .85rem; min-height: 0; gap: 10px; }
+    .product-modal { grid-template-columns: 1fr; }
+    .size-btn { min-width: 44px; min-height: 44px; padding: 10px; }
+    .product-modal-close { width: 40px; height: 40px; font-size: 18px; }
+    /* Empêche le zoom automatique d'iOS Safari au focus (nécessite >=16px) */
+    .catalog-search,
+    .listing-form-grid input,
+    .listing-form-grid select,
+    .listing-form-grid textarea { font-size: 16px; }
+    #oName, #oEmail, #oPhone, #oNotes { font-size: 16px !important; }
+  }
+  @media (max-width: 480px) {
+    /* Sous cette largeur, logo + panier + burger textuels ne tiennent plus sur une ligne : on passe en icônes seules */
+    .nav-logo span { display: none; }
+    .nav-cart-label { display: none; }
+    .nav-cart { padding: .6rem .75rem; gap: 4px; }
+    nav { gap: 8px; padding: .6rem .6rem .6rem .7rem; }
   }
 </style>
 </head>
