@@ -1383,8 +1383,12 @@ async function createCheckout(request, env, params) {
 
   if (!checkoutRes.ok) {
     const errText = await checkoutRes.text();
-    throw new Error(`HelloAsso checkout error ${checkoutRes.status}: ${errText}`);
-  }
+
+    return json({
+        error: "HelloAsso",
+        details: errText
+    }, checkoutRes.status);
+}
 
   const checkoutData = await checkoutRes.json();
   const redirectUrl  = checkoutData.redirectUrl;
