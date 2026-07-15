@@ -38,7 +38,7 @@ HELLOASSO_ERROR_URL  = "https://boutique.americanfullfightingbons.fr/?payment=er
 
 # HelloAsso OAuth2 client_id (non secret — identifiant public de l'app OAuth2)
 # Remplacer par la valeur réelle obtenue dans HelloAsso > Paramètres > API
-HELLOASSO_CLIENT_ID  = "votre-client-id-helloasso"
+HELLOASSO_CLIENT_ID  = "4f4a8f522f76429789c7f7ec4aa507c0"
 
 # Brevo
 BREVO_FROM_EMAIL  = "contact@americanfullfightingbons.fr"
