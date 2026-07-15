@@ -16,6 +16,7 @@
 <meta name="twitter:image" content="https://boutique.americanfullfightingbons.fr/images/products/14-1779111630878.png"/>
 <title>AMERICAN FULL FIGHTING BONS EN CHABLAIS — Boutique</title>
 <link rel="canonical" href="https://boutique.americanfullfightingbons.fr/"/>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet"/>
@@ -1076,6 +1077,7 @@
         <span class="listing-form-hint">JPG / PNG / WebP · max 5 Mo</span>
       </label>
     </div>
+    <div class="cf-turnstile" id="lf_turnstile" data-sitekey="0x4AAAAAADzBxQd7CZNUd0GV" data-callback="onListingTurnstileSuccess" data-expired-callback="onListingTurnstileExpired" data-error-callback="onListingTurnstileExpired" style="margin:.5rem 0 1rem"></div>
     <div id="listingFormError" class="listing-form-error" hidden></div>
     <button class="btn-primary listing-form-submit" id="listingSubmitBtn" onclick="submitListing()">Envoyer mon annonce</button>
   </div>
@@ -1709,8 +1711,13 @@
     }
   }
 
+  let orderTurnstileToken = '';
+  window.onOrderTurnstileSuccess = function(token) { orderTurnstileToken = token; };
+  window.onOrderTurnstileExpired = function() { orderTurnstileToken = ''; };
+
   async function submitOrder(e) {
     e.preventDefault();
+    if (!orderTurnstileToken) { showToast('Merci de valider la vérification anti-robot.', 3000); return; }
     const btn = document.getElementById('submitOrderBtn');
     btn.disabled = true;
     btn.textContent = 'Envoi…';
@@ -1721,6 +1728,7 @@
       customer_phone: document.getElementById('oPhone').value,
       items: cartItems.map(function(i) { return { product_id: i.product_id, quantity: i.quantity, size: i.size || null }; }),
       notes: (document.getElementById('oNotes').value + (cartItems.some(function(i){return i.size;}) ? '\nTailles : ' + cartItems.filter(function(i){return i.size;}).map(function(i){return i.name+' → '+i.size;}).join(', ') : '')).trim(),
+      turnstile_token: orderTurnstileToken,
     };
 
     try {
@@ -1754,6 +1762,8 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Confirmer la commande';
+      if (window.turnstile) window.turnstile.reset('#order_turnstile');
+      orderTurnstileToken = '';
     }
   }
 
@@ -1876,6 +1886,7 @@
     <input id="oPhone" name="tel"   type="tel"   autocomplete="tel"   placeholder="Téléphone"                   style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);border-radius:12px;color:var(--white);margin-bottom:.75rem;font-family:var(--font-body);font-size:14px">
     <label for="oNotes" class="sr-only">Notes (taille, couleur…)</label>
     <textarea id="oNotes" name="notes" placeholder="Notes (taille, couleur…)"              style="width:100%;padding:10px 14px;background:var(--dark4);border:1px solid rgba(255,255,255,.12);border-radius:12px;color:var(--white);margin-bottom:1.25rem;font-family:var(--font-body);font-size:14px;resize:vertical;min-height:70px"></textarea>
+    <div class="cf-turnstile" id="order_turnstile" data-sitekey="0x4AAAAAADzBxQd7CZNUd0GV" data-callback="onOrderTurnstileSuccess" data-expired-callback="onOrderTurnstileExpired" data-error-callback="onOrderTurnstileExpired" style="margin-bottom:1rem"></div>
     <button id="submitOrderBtn" onclick="submitOrder(event)" style="width:100%;padding:14px;background:linear-gradient(135deg,#e36443 0%,var(--red-dark) 100%);color:var(--white);font-family:var(--font-body);font-weight:600;font-size:16px;border:none;border-radius:var(--radius-pill);cursor:pointer;box-shadow:0 16px 34px rgba(159,36,19,.28)">
       Confirmer la commande
     </button>
@@ -1979,10 +1990,16 @@
     document.body.style.overflow = '';
   };
 
+  var listingTurnstileToken = '';
+  window.onListingTurnstileSuccess = function(token) { listingTurnstileToken = token; };
+  window.onListingTurnstileExpired = function() { listingTurnstileToken = ''; };
+
   window.submitListing = function() {
     var btn = document.getElementById('listingSubmitBtn');
     var errEl = document.getElementById('listingFormError');
     errEl.hidden = true;
+
+    if (!listingTurnstileToken) { showListingErr('Merci de valider la vérification anti-robot.'); return; }
 
     var title   = (document.getElementById('lf_title').value || '').trim();
     var price   = parseFloat(document.getElementById('lf_price').value);
@@ -2002,7 +2019,7 @@
     btn.disabled = true;
     btn.textContent = 'Envoi…';
 
-    var payload = { title, price, category: cat, condition: cond, contact_name: name, contact_email: email };
+    var payload = { title, price, category: cat, condition: cond, contact_name: name, contact_email: email, turnstile_token: listingTurnstileToken };
     if (desc)  payload.description   = desc;
     if (phone) payload.contact_phone = phone;
 
@@ -2034,6 +2051,10 @@
       btn.disabled = false;
       btn.textContent = 'Envoyer mon annonce';
       showListingErr(err.message || 'Erreur lors de l\'envoi.');
+    })
+    .finally(function() {
+      if (window.turnstile) window.turnstile.reset('#lf_turnstile');
+      listingTurnstileToken = '';
     });
   };
 
