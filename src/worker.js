@@ -159,12 +159,20 @@ export default {
 
   // ── Cron quotidien (cf. [triggers] crons dans wrangler.toml) ──────────────
   // Rattrape ou libère les commandes "pending_payment" dont le retour
-  // HelloAsso n'a jamais eu lieu (cf. purgeAbandonedOrders ci-dessus).
+  // HelloAsso n'a jamais eu lieu (cf. purgeAbandonedOrders ci-dessus), et
+  // rattrape aussi les ventes jamais synchronisées vers la comptabilité
+  // (gestion) suite à une panne réseau ponctuelle au moment du paiement.
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(
       purgeAbandonedOrders(env).then(
         (r) => console.log('[cron] purgeAbandonedOrders:', JSON.stringify(r)),
         (e) => console.error('[cron] purgeAbandonedOrders a échoué', e instanceof Error ? e.message : String(e)),
+      ),
+    );
+    ctx.waitUntil(
+      retryPendingGestionSalesSync(env).then(
+        (r) => console.log('[cron] retryPendingGestionSalesSync:', JSON.stringify(r)),
+        (e) => console.error('[cron] retryPendingGestionSalesSync a échoué', e instanceof Error ? e.message : String(e)),
       ),
     );
   },
@@ -359,6 +367,32 @@ async function ensureSupportTables(env) {
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS inventory_sync_events (
       reference TEXT PRIMARY KEY,
       source TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`),
+    // Ces deux tables et la colonne orders.paid_at (utilisées par
+    // finalizePaidOrder) ont existé dans le code sans jamais avoir été
+    // migrées en prod — cf. migration_orders_finalize_payment.sql. Les
+    // recréer ici aussi au démarrage sécurise les futures bases fraîches,
+    // mais ne dispense PAS de lancer la migration sur la base existante :
+    // CREATE TABLE IF NOT EXISTS ne touche pas une table qui existe déjà
+    // sans la colonne, et ici les tables entières manquent.
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS order_status_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      old_status TEXT,
+      new_status TEXT NOT NULL,
+      changed_at TEXT DEFAULT (datetime('now')),
+      changed_by TEXT
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      helloasso_payment_id TEXT,
+      amount REAL,
+      payer_name TEXT,
+      payer_email TEXT,
+      paid_at TEXT,
+      raw_payload TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     )`),
   ]);
@@ -1684,7 +1718,94 @@ async function sendListingConfirmationToSeller(env, listing) {
   return { attempted: true, sent: true, recipient: listing.contact_email };
 }
 
+// ── Synchronisation des ventes vers la comptabilité (worker gestion) ──────
+// Enregistre une commande payée comme facture + écritures comptables dans
+// le logiciel de gestion, qui a sa propre base D1 totalement séparée de
+// celle de la boutique. Voir handleBoutiqueSalesSync côté gestion pour la
+// réciproque (source de vérité sur le format des écritures).
+function getGestionApiBase(env) {
+  return env.GESTION_API_BASE_URL || 'https://gestion.americanfullfightingbons.fr';
+}
+
+async function syncOrderSaleToGestion(env, orderId) {
+  if (!env.GESTION_SYNC_TOKEN) {
+    console.warn(`[gestion-sync] GESTION_SYNC_TOKEN manquant : vente de la commande #${orderId} non synchronisée`);
+    return { synced: false, reason: 'token manquant' };
+  }
+
+  const order = await env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
+  if (!order) return { synced: false, reason: 'commande introuvable' };
+
+  const { results: items } = await env.DB.prepare(
+    'SELECT product_name, quantity, unit_price FROM order_items WHERE order_id = ?'
+  ).bind(orderId).all();
+
+  const payload = {
+    orderId: order.id,
+    customerName: order.customer_name,
+    customerEmail: order.customer_email,
+    total: Number(order.total),
+    paidAt: order.paid_at || null,
+    items: (items || []).map((i) => ({
+      name: i.product_name,
+      quantity: i.quantity,
+      unitPrice: i.unit_price,
+    })),
+  };
+
+  try {
+    const res = await fetch(`${getGestionApiBase(env)}/api/internal/sales/sync/boutique`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Boutique-Sales-Token': env.GESTION_SYNC_TOKEN,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`[gestion-sync] échec commande #${orderId} (${res.status}) :`, errText);
+      return { synced: false, reason: `HTTP ${res.status}` };
+    }
+
+    await env.DB.prepare('UPDATE orders SET gestion_synced_at = ? WHERE id = ?')
+      .bind(new Date().toISOString().replace('T', ' ').slice(0, 19), orderId)
+      .run();
+
+    return { synced: true };
+  } catch (err) {
+    // Panne réseau / gestion indisponible : on ne bloque jamais la commande
+    // du client pour ça. gestion_synced_at reste NULL, la commande sera
+    // reprise automatiquement par retryPendingGestionSalesSync() (cron
+    // quotidien) jusqu'à ce que ça réussisse.
+    console.error(`[gestion-sync] erreur réseau commande #${orderId} :`, err?.message || err);
+    return { synced: false, reason: 'erreur réseau' };
+  }
+}
+
+// Filet de rattrapage : reprend les commandes confirmées jamais synchronisées
+// (échec réseau ponctuel, gestion indisponible au moment du paiement, etc.)
+async function retryPendingGestionSalesSync(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT id FROM orders
+     WHERE status IN ('confirmed', 'shipped', 'delivered')
+       AND gestion_synced_at IS NULL
+     ORDER BY id ASC
+     LIMIT 50`
+  ).all();
+
+  let synced = 0;
+  let failed = 0;
+  for (const row of results || []) {
+    const result = await syncOrderSaleToGestion(env, row.id);
+    if (result.synced) synced++; else failed++;
+  }
+  return { checked: (results || []).length, synced, failed };
+}
+
 async function finalizePaidOrder(env, orderId, helloAssoIntent) {
+  await ensureSupportTables(env);
   const order = await env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
   if (!order) throw new Error('Commande introuvable');
   if (order.status === 'confirmed' && order.invoice_sent) {
@@ -1722,9 +1843,17 @@ async function finalizePaidOrder(env, orderId, helloAssoIntent) {
     }
   }
 
-  await ensureSupportTables(env);
   await env.DB.prepare('DELETE FROM order_access_tokens WHERE order_id = ?').bind(orderId).run();
   const invoice = await sendInvoiceForOrder(env, orderId);
+
+  // Comptabilité (gestion) : ne doit jamais faire échouer la confirmation
+  // de commande côté client si ça rate — cf. retryPendingGestionSalesSync.
+  try {
+    await syncOrderSaleToGestion(env, orderId);
+  } catch (err) {
+    console.error(`[gestion-sync] exception inattendue commande #${orderId} :`, err?.message || err);
+  }
+
   return { confirmed: true, invoice_sent: invoice.sent };
 }
 

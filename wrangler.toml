@@ -27,9 +27,17 @@ bucket_name = "affb-images"
 #   HELLOASSO_CLIENT_SECRET
 #   BREVO_API_KEY
 #   TURNSTILE_SECRET_KEY   (protège /api/orders et /api/listings du spam)
+#   BOUTIQUE_SYNC_TOKEN    (reçoit les appels internes d'inscription pour la synchro stock)
+#   GESTION_SYNC_TOKEN     (appelle gestion pour enregistrer chaque vente en comptabilité —
+#                           doit avoir EXACTEMENT la même valeur que BOUTIQUE_SALES_SYNC_TOKEN
+#                           côté worker gestion)
 
 [vars]
 ENVIRONMENT = "production"
+
+# Worker gestion (comptabilité) — utilisé pour synchroniser chaque vente
+# confirmée (facture + écritures). Pas un secret (juste une URL publique).
+GESTION_API_BASE_URL = "https://gestion.americanfullfightingbons.fr"
 
 # HelloAsso — slug de l'organisation
 HELLOASSO_ORG_SLUG   = "american-full-fighting-bons-en-chablais"

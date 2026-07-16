@@ -33,7 +33,32 @@ CREATE TABLE IF NOT EXISTS orders (
   helloasso_id   TEXT,                       -- ID checkout HelloAsso
   helloasso_url  TEXT,                       -- URL de paiement HelloAsso
   invoice_sent   INTEGER NOT NULL DEFAULT 0, -- 0 | 1
+  paid_at        TEXT,                       -- date de confirmation du paiement (cf. finalizePaidOrder)
+  gestion_synced_at TEXT,                    -- date de synchronisation réussie vers la comptabilité (worker gestion)
   created_at     TEXT    DEFAULT (datetime('now'))
+);
+
+-- Historique des transitions de statut d'une commande (audit)
+CREATE TABLE IF NOT EXISTS order_status_history (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id    INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  old_status  TEXT,
+  new_status  TEXT NOT NULL,
+  changed_at  TEXT DEFAULT (datetime('now')),
+  changed_by  TEXT
+);
+
+-- Détail du paiement HelloAsso reçu pour une commande (1 ligne par commande payée)
+CREATE TABLE IF NOT EXISTS payments (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id             INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  helloasso_payment_id TEXT,
+  amount               REAL,
+  payer_name           TEXT,
+  payer_email          TEXT,
+  paid_at              TEXT,
+  raw_payload          TEXT,
+  created_at           TEXT DEFAULT (datetime('now'))
 );
 
 -- Lignes de commande
