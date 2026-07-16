@@ -1127,8 +1127,17 @@ async function getMemberOrders(request, env) {
   const member = await requireMember(request, env);
   if (!member) return json({ error: 'Non autorisé' }, 401);
   const email = String(member.email).trim().toLowerCase();
+  // Seules les commandes dont le paiement est bien passé apparaissent dans
+  // l'espace membre (confirmed / shipped / delivered). Les commandes encore
+  // en attente de paiement, en échec, ou annulées ne sont pas des "achats"
+  // du point de vue de l'adhérent : on ne veut pas qu'il voie apparaître des
+  // commandes qu'il n'a pas menées à terme (les siennes, celles abandonnées
+  // par un tiers ayant utilisé son email par erreur, etc.).
   const { results } = await env.DB.prepare(
-    `SELECT id, status, total, created_at FROM orders WHERE LOWER(TRIM(customer_email)) = ? ORDER BY created_at DESC`
+    `SELECT id, status, total, created_at FROM orders
+     WHERE LOWER(TRIM(customer_email)) = ?
+       AND status IN ('confirmed', 'shipped', 'delivered')
+     ORDER BY created_at DESC`
   ).bind(email).all();
   const orders = results || [];
   if (!orders.length) return json({ data: [] }, 200, { 'Cache-Control': 'private, no-store' });
