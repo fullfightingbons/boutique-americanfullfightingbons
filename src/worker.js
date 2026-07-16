@@ -1493,6 +1493,31 @@ async function checkoutCallback(request, env, _params, url) {
 
   try {
     const intent = await getHelloAssoCheckoutIntent(env, checkoutIntentId);
+
+    // ── Vérification critique anti-rejeu ──────────────────────────────────
+    // checkoutIntentId peut provenir de la query string (contrôlée par
+    // l'appelant, cf. resolveCheckoutCallbackOrder / repli ci-dessus quand
+    // order.helloasso_id est encore vide). Sans ce contrôle, un intent
+    // HelloAsso réellement payé une fois (même pour un tout petit montant)
+    // pourrait être rejoué indéfiniment contre n'importe quelle NOUVELLE
+    // commande de montant inférieur ou égal, en appelant simplement ce
+    // callback avec un orderId différent à chaque fois — sans jamais payer
+    // la commande ciblée. metadata.orderId est fixé par nous à la création
+    // du checkout-intent (cf. createCheckout) et renvoyé tel quel par
+    // l'API HelloAsso : il ne peut pas être falsifié par l'appelant.
+    const boundOrderId = intent?.metadata?.orderId != null ? String(intent.metadata.orderId) : null;
+    if (boundOrderId !== String(order.id)) {
+      console.error(
+        `[checkout-callback] refus anti-rejeu : intent ${checkoutIntentId} lié à la commande ${boundOrderId ?? '(aucune)'}, ` +
+        `mais finalisation demandée pour la commande ${order.id}`
+      );
+      await releaseReservedStockForOrder(env, callbackInfo.orderId);
+      return Response.redirect(
+        buildCheckoutReturnUrl(env.HELLOASSO_ERROR_URL || '/', callbackInfo.orderId, 'failed'),
+        302
+      );
+    }
+
     const paymentState = buildHelloAssoPaymentState(intent, order.total);
     if (paymentState.paid) {
       await finalizePaidOrder(env, callbackInfo.orderId, intent);
