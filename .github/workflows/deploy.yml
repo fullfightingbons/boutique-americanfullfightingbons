@@ -1,28 +1,103 @@
-name: Deploy
+name: Deploy — Cloudflare Worker & D1
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  deploy:
+  # ══════════════════════════════════════════════════════════════
+  # JOB 1 : Appliquer le schéma SQL sur D1
+  # ══════════════════════════════════════════════════════════════
+  migrate:
+    name: Migrate D1 schema
     runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: "20"
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install Wrangler
+        run: npm install -g wrangler
 
-      - name: Check deployment package
-        run: npm run check
+      - name: Apply schema.sql to D1 (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          wrangler d1 execute calendrier-americanfullfightingbonsdb \
+            --file=schema.sql \
+            --remote
 
-      - name: Deploy to Cloudflare
-        run: npm run deploy
+      # CORRECTIF : cette étape manquait. schema.sql ne fait que CREATE TABLE
+      # IF NOT EXISTS (donc no-op sur les tables déjà existantes) : toute
+      # évolution de schéma passée par migrations/ (ex. ALTER TABLE ADD COLUMN
+      # poster_key en 0006) n'était donc JAMAIS appliquée automatiquement en
+      # prod, malgré ce qu'annonce le README. `wrangler d1 migrations apply`
+      # applique uniquement les migrations du dossier migrations/ pas encore
+      # jouées (suivi dans une table interne à D1), sans jamais rejouer une
+      # migration déjà appliquée.
+      - name: Apply D1 migrations (remote)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          wrangler d1 migrations apply DB --remote
+
+  # ══════════════════════════════════════════════════════════════
+  # JOB 2 : Déployer le Worker
+  # ══════════════════════════════════════════════════════════════
+  deploy:
+    name: Deploy Worker
+    runs-on: ubuntu-latest
+    needs: migrate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: Deploy Worker to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: deploy
+
+      # CORRECTION CRITIQUE : printf au lieu de echo
+      # echo ajoute un \n en fin de chaîne → token corrompu → auth cassée
+      - name: Set ADMIN_TOKEN secret on Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          printf '%s' "${{ secrets.CF_ADMIN_TOKEN }}" | \
+            wrangler secret put ADMIN_TOKEN \
+              --name calendrier-americanfullfightingbons
+
+      # CORRECTIF : cette étape manquait. Sans SESSION_SECRET posé sur le
+      # Worker, getSessionSecret() lève une exception dès la tentative de
+      # connexion admin (login qui échoue en 500, affiché à tort par le
+      # frontend comme "mot de passe incorrect") — cf. README, section
+      # Secrets requis. Le secret CF_SESSION_SECRET doit exister dans les
+      # secrets GitHub du dépôt (Settings → Secrets and variables → Actions) ;
+      # générez-le avec `openssl rand -base64 32` si besoin.
+      - name: Set SESSION_SECRET secret on Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          printf '%s' "${{ secrets.CF_SESSION_SECRET }}" | \
+            wrangler secret put SESSION_SECRET \
+              --name calendrier-americanfullfightingbons
