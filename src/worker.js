@@ -1131,7 +1131,7 @@ async function getMemberOrders(request, env) {
     `SELECT id, status, total, created_at FROM orders WHERE LOWER(TRIM(customer_email)) = ? ORDER BY created_at DESC`
   ).bind(email).all();
   const orders = results || [];
-  if (!orders.length) return json({ data: [] });
+  if (!orders.length) return json({ data: [] }, 200, { 'Cache-Control': 'private, no-store' });
 
   // Détail des articles en une seule requête (plutôt qu'un aller-retour D1
   // par commande), pour afficher le contenu de chaque commande côté membre
@@ -1148,7 +1148,7 @@ async function getMemberOrders(request, env) {
   }
   for (const order of orders) order.items = itemsByOrder.get(order.id) || [];
 
-  return json({ data: orders });
+  return json({ data: orders }, 200, { 'Cache-Control': 'private, no-store' });
 }
 
 async function getMemberOrderInvoice(request, env, params) {
@@ -1346,8 +1346,24 @@ async function createCheckout(request, env, params) {
 
   const { results: items } = await env.DB.prepare('SELECT * FROM order_items WHERE order_id = ?').bind(params.orderId).all();
 
-  // Obtenir le token HelloAsso
-  const token = await getHelloAssoToken(env);
+  // Obtenir le token HelloAsso. On isole cet appel dans son propre try/catch :
+  // s'il échoue (secret manquant/invalide, client_id erroné, org_slug inconnu,
+  // HelloAsso indisponible...), l'erreur remontait auparavant jusqu'au catch
+  // global du routeur, qui renvoie un "Erreur serveur" 500 générique en
+  // production — impossible à distinguer d'un vrai bug pour l'utilisateur
+  // comme pour l'admin. Ici on log le détail (visible via `wrangler tail`) et
+  // on renvoie une erreur explicite qui dit clairement qu'il s'agit d'un
+  // problème de configuration/connexion HelloAsso, pas d'une panne du site.
+  let token;
+  try {
+    token = await getHelloAssoToken(env);
+  } catch (err) {
+    console.error('[checkout] Échec obtention token HelloAsso :', err?.message || err);
+    return json({
+      error: 'HelloAsso indisponible',
+      details: 'Impossible de contacter HelloAsso pour initier le paiement (identifiants HELLOASSO_CLIENT_ID/HELLOASSO_CLIENT_SECRET invalides ou service HelloAsso indisponible). Merci de réessayer dans quelques instants ou de contacter le club si le problème persiste.',
+    }, 502);
+  }
 
   // Construire le payload HelloAsso
   // Les montants sont en centimes
@@ -1383,9 +1399,11 @@ async function createCheckout(request, env, params) {
 
   if (!checkoutRes.ok) {
     const errText = await checkoutRes.text();
+    console.error(`[checkout] HelloAsso a refusé la création du checkout-intent (${checkoutRes.status}) :`, errText);
 
     return json({
         error: "HelloAsso",
+        message: "Le paiement HelloAsso n'a pas pu être initié. Merci de réessayer ou de contacter le club si le problème persiste.",
         details: errText
     }, checkoutRes.status);
 }
