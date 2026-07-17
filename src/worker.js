@@ -721,12 +721,17 @@ async function serveCgvHTML() {
 
 async function getProducts(request, env, _p, url) {
   const category = url.searchParams.get('category');
+  const includeOutOfStock = url.searchParams.get('all') === '1';
   let query, args;
   if (category && category !== 'tous') {
-    query = 'SELECT * FROM products WHERE category = ? AND stock > 0 ORDER BY id';
+    query = includeOutOfStock
+      ? 'SELECT * FROM products WHERE category = ? ORDER BY id'
+      : 'SELECT * FROM products WHERE category = ? AND stock > 0 ORDER BY id';
     args  = [category];
   } else {
-    query = 'SELECT * FROM products WHERE stock > 0 ORDER BY id';
+    query = includeOutOfStock
+      ? 'SELECT * FROM products ORDER BY id'
+      : 'SELECT * FROM products WHERE stock > 0 ORDER BY id';
     args  = [];
   }
   const { results } = await env.DB.prepare(query).bind(...args).all();
