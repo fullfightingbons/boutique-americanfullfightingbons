@@ -1,0 +1,333 @@
+/**
+ * pdf-engine.js — AFFBC
+ * ─────────────────────────────────────────────────────────────────────────
+ * Moteur PDF générique, sans dépendance, réutilisable dans n'importe quel
+ * Worker Cloudflare (aucun accès disque/Node requis — uniquement Uint8Array
+ * et TextEncoder, disponibles dans l'environnement Workers).
+ *
+ * Origine : généralisé à partir de `inscription/src/routes/_lib/pdf.js`
+ * (classe PdfBuilder + buildPdfDocument), qui était jusqu'ici le seul des
+ * générateurs PDF "maison" du club à supporter proprement la mise en page
+ * riche (formes, texte positionné, images). Ce fichier isole cette partie
+ * générique (aucune logique métier "fiche adhérent" ici) pour qu'elle soit
+ * copiable telle quelle dans boutique/gestion/espace-membre.
+ *
+ * Ce fichier est volontairement un simple copier-coller entre projets
+ * (chaque Worker Cloudflare se déployant indépendamment, il n'y a pas de
+ * package npm partagé pratique ici) — le garder identique partout est une
+ * discipline à maintenir manuellement lors de futures évolutions.
+ */
+
+// ─── Constantes de page ───────────────────────────────────────────────────
+export const W_PT = 595.28;   // A4 largeur en points
+export const H_PT = 841.89;   // A4 hauteur en points
+export const MM   = 2.8346;   // 1 mm en points
+export const ML   = 14 * MM;  // marge gauche par défaut
+export const MR   = 14 * MM;  // marge droite par défaut
+export const CW   = W_PT - ML - MR;
+
+// ─── Helpers couleur ───────────────────────────────────────────────────────
+function rgb255(c) { return c.map(v => +(v / 255).toFixed(4)); }
+function rg(c) { const [r, g, b] = rgb255(c); return `${r} ${g} ${b} rg`; }
+function RG(c) { const [r, g, b] = rgb255(c); return `${r} ${g} ${b} RG`; }
+
+// ─── Encodage sécurisé (ASCII latin — les polices standard PDF/Helvetica
+// n'ont pas d'UTF-8, on retire donc accents/caractères spéciaux) ──────────
+export function safe(v) {
+  return String(v ?? '')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u2018\u2019\u02BC]/g, "'")
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7E]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function esc(v) {
+  return safe(v).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function strToBytes(str) {
+  return new TextEncoder().encode(str);
+}
+
+function concatBytes(chunks) {
+  const total = chunks.reduce((s, c) => s + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.length; }
+  return out;
+}
+
+// ─── Lecture des dimensions JPEG (nécessaire pour embarquer un logo/photo
+// en /DCTDecode sans zlib ni décodage complet) ─────────────────────────────
+export function parseJpegInfo(bytes) {
+  if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return null;
+  let offset = 2;
+  while (offset < bytes.length - 1) {
+    if (bytes[offset] !== 0xFF) { offset++; continue; }
+    const marker = bytes[offset + 1];
+    if (marker === 0xFF) { offset++; continue; }
+    if ((marker >= 0xD0 && marker <= 0xD9) || marker === 0x01) { offset += 2; continue; }
+    if (offset + 3 >= bytes.length) break;
+    const segLen = (bytes[offset + 2] << 8) | bytes[offset + 3];
+    const isSOF = marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
+    if (isSOF) {
+      const p = offset + 4;
+      if (p + 5 >= bytes.length) return null;
+      const height = (bytes[p + 1] << 8) | bytes[p + 2];
+      const width = (bytes[p + 3] << 8) | bytes[p + 4];
+      const numComponents = bytes[p + 5];
+      if (!width || !height) return null;
+      return { width, height, numComponents };
+    }
+    if (marker === 0xDA) break;
+    offset += 2 + segLen;
+  }
+  return null;
+}
+
+// Décode une chaîne base64 (disponible nativement dans les Workers via atob).
+export function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// Encode des octets en base64 sans passer par atob/btoa (qui butent sur les
+// gros tableaux binaires dans certains runtimes) — utilisé pour les pièces
+// jointes Brevo (attachment.content attend du base64 pur, sans préfixe data:).
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+export function bytesToBase64(bytes) {
+  let result = '';
+  const len = bytes.length;
+  for (let i = 0; i < len; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < len ? bytes[i + 1] : 0;
+    const b2 = i + 2 < len ? bytes[i + 2] : 0;
+    result += B64_CHARS[b0 >> 2];
+    result += B64_CHARS[((b0 & 3) << 4) | (b1 >> 4)];
+    result += i + 1 < len ? B64_CHARS[((b1 & 15) << 2) | (b2 >> 6)] : '=';
+    result += i + 2 < len ? B64_CHARS[b2 & 63] : '=';
+  }
+  return result;
+}
+
+// Ajoute une image JPEG (bytes bruts) au document et retourne son descripteur,
+// prêt pour drawImage()/drawImageContain(). Aucun décodage pixel requis :
+// le JPEG est embarqué tel quel (/DCTDecode), seule l'en-tête est lue.
+export function addJpegImage(builder, jpegBytes) {
+  const info = parseJpegInfo(jpegBytes);
+  if (!info) return null;
+  const colorSpace = info.numComponents === 1 ? 'DeviceGray' : 'DeviceRGB';
+  return builder.addImage(jpegBytes, { filter: 'DCTDecode', colorSpace, bpc: 8, width: info.width, height: info.height });
+}
+
+
+// ─── Constructeur de contenu PDF multi-pages ──────────────────────────────
+export class PdfBuilder {
+  constructor() {
+    this.pages = [[]];
+    this.pageIndex = 0;
+    this.font = null;
+    this.fontSize = 10;
+    this.images = []; // { id, bytes, filter, colorSpace, bpc, width, height }
+  }
+
+  get ops() { return this.pages[this.pageIndex]; }
+
+  addImage(bytes, { filter, colorSpace = 'DeviceRGB', bpc = 8, width, height }) {
+    const id = `Im${this.images.length + 1}`;
+    this.images.push({ id, bytes, filter, colorSpace, bpc, width, height });
+    return { id, width, height };
+  }
+
+  drawImage(imageId, xMm, yMm, wMm, hMm) {
+    const x = xMm * MM;
+    const y = H_PT - (yMm + hMm) * MM;
+    const w = wMm * MM;
+    const h = hMm * MM;
+    this.push('q', `${+w.toFixed(2)} 0 0 ${+h.toFixed(2)} ${+x.toFixed(2)} ${+y.toFixed(2)} cm`, `/${imageId} Do`, 'Q');
+  }
+
+  drawImageContain(imageId, boxXMm, boxYMm, boxWMm, boxHMm, imgWidthPx, imgHeightPx) {
+    const boxRatio = boxWMm / boxHMm;
+    const imgRatio = imgWidthPx / imgHeightPx;
+    let drawW, drawH;
+    if (imgRatio > boxRatio) { drawW = boxWMm; drawH = boxWMm / imgRatio; }
+    else { drawH = boxHMm; drawW = boxHMm * imgRatio; }
+    const offX = boxXMm + (boxWMm - drawW) / 2;
+    const offY = boxYMm + (boxHMm - drawH) / 2;
+    this.drawImage(imageId, offX, offY, drawW, drawH);
+  }
+
+  newPage() { this.pages.push([]); this.pageIndex++; }
+
+  push(...lines) { this.ops.push(...lines); }
+
+  saveState() { this.push('q'); }
+  restoreState() { this.push('Q'); }
+
+  setLineWidth(w) { this.push(`${+w.toFixed(3)} w`); }
+  setFillRgb(c) { this.push(rg(c)); }
+  setStrokeRgb(c) { this.push(RG(c)); }
+
+  setFont(name, size) { this.font = name; this.fontSize = size; this.push(`/${name} ${size} Tf`); }
+
+  rect(xMm, yMm, wMm, hMm, mode = 'f') {
+    const x = xMm * MM, y = H_PT - (yMm + hMm) * MM, w = wMm * MM, h = hMm * MM;
+    this.push(`${+x.toFixed(2)} ${+y.toFixed(2)} ${+w.toFixed(2)} ${+h.toFixed(2)} re ${mode}`);
+  }
+
+  roundedRect(xMm, yMm, wMm, hMm, rMm, mode = 'f') {
+    const x = xMm * MM, y = H_PT - (yMm + hMm) * MM, w = wMm * MM, h = hMm * MM, r = rMm * MM, k = 0.5523;
+    this.push(
+      `${+(x + r).toFixed(2)} ${+(y).toFixed(2)} m`,
+      `${+(x + w - r).toFixed(2)} ${+(y).toFixed(2)} l`,
+      `${+(x + w - r + k * r).toFixed(2)} ${+(y).toFixed(2)} ${+(x + w).toFixed(2)} ${+(y + r - k * r).toFixed(2)} ${+(x + w).toFixed(2)} ${+(y + r).toFixed(2)} c`,
+      `${+(x + w).toFixed(2)} ${+(y + h - r).toFixed(2)} l`,
+      `${+(x + w).toFixed(2)} ${+(y + h - r + k * r).toFixed(2)} ${+(x + w - r + k * r).toFixed(2)} ${+(y + h).toFixed(2)} ${+(x + w - r).toFixed(2)} ${+(y + h).toFixed(2)} c`,
+      `${+(x + r).toFixed(2)} ${+(y + h).toFixed(2)} l`,
+      `${+(x + r - k * r).toFixed(2)} ${+(y + h).toFixed(2)} ${+(x).toFixed(2)} ${+(y + h - r + k * r).toFixed(2)} ${+(x).toFixed(2)} ${+(y + h - r).toFixed(2)} c`,
+      `${+(x).toFixed(2)} ${+(y + r).toFixed(2)} l`,
+      `${+(x).toFixed(2)} ${+(y + r - k * r).toFixed(2)} ${+(x + r - k * r).toFixed(2)} ${+(y).toFixed(2)} ${+(x + r).toFixed(2)} ${+(y).toFixed(2)} c`,
+      mode,
+    );
+  }
+
+  circle(xMm, yMm, rMm, mode = 'f') {
+    const x = xMm * MM, y = H_PT - yMm * MM, r = rMm * MM, k = 0.5523 * r;
+    this.push(
+      `${+(x).toFixed(2)} ${+(y + r).toFixed(2)} m`,
+      `${+(x + k).toFixed(2)} ${+(y + r).toFixed(2)} ${+(x + r).toFixed(2)} ${+(y + k).toFixed(2)} ${+(x + r).toFixed(2)} ${+(y).toFixed(2)} c`,
+      `${+(x + r).toFixed(2)} ${+(y - k).toFixed(2)} ${+(x + k).toFixed(2)} ${+(y - r).toFixed(2)} ${+(x).toFixed(2)} ${+(y - r).toFixed(2)} c`,
+      `${+(x - k).toFixed(2)} ${+(y - r).toFixed(2)} ${+(x - r).toFixed(2)} ${+(y - k).toFixed(2)} ${+(x - r).toFixed(2)} ${+(y).toFixed(2)} c`,
+      `${+(x - r).toFixed(2)} ${+(y + k).toFixed(2)} ${+(x - k).toFixed(2)} ${+(y + r).toFixed(2)} ${+(x).toFixed(2)} ${+(y + r).toFixed(2)} c`,
+      mode,
+    );
+  }
+
+  line(x1Mm, y1Mm, x2Mm, y2Mm) {
+    this.push(`${+(x1Mm * MM).toFixed(2)} ${+(H_PT - y1Mm * MM).toFixed(2)} m`, `${+(x2Mm * MM).toFixed(2)} ${+(H_PT - y2Mm * MM).toFixed(2)} l S`);
+  }
+
+  text(txt, xMm, yMm, opts = {}) {
+    const { align = 'left', fontName, fontSize, color } = opts;
+    const str = esc(txt);
+    if (!str) return;
+    let px = xMm * MM;
+    const py = H_PT - yMm * MM;
+    const fn = fontName || this.font || 'F1';
+    const fs = fontSize || this.fontSize;
+    const estW = str.length * fs * 0.48;
+    if (align === 'center') px -= estW / 2;
+    if (align === 'right') px -= estW;
+    this.push('BT');
+    if (color) this.push(rg(color));
+    this.push(`/${fn} ${fs} Tf`);
+    this.push(`${+px.toFixed(2)} ${+py.toFixed(2)} Td`);
+    this.push(`(${str}) Tj`);
+    this.push('ET');
+  }
+
+  textWrapped(txt, xMm, yMm, maxWMm, opts = {}) {
+    const { fontName, fontSize, color } = opts;
+    const fs = fontSize || this.fontSize;
+    const maxPt = maxWMm * MM;
+    const charW = fs * 0.48;
+    const maxChars = Math.max(1, Math.floor(maxPt / charW));
+    const words = safe(txt).split(' ');
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const candidate = cur ? `${cur} ${w}` : w;
+      if (candidate.length <= maxChars) { cur = candidate; continue; }
+      if (cur) lines.push(cur);
+      cur = w;
+    }
+    if (cur) lines.push(cur);
+    const lh = fs * 1.35 / MM;
+    lines.forEach((l, i) => this.text(l, xMm, yMm + i * lh, { fontName, fontSize, color }));
+    return lines.length;
+  }
+
+  getStreams() { return this.pages.map(ops => ops.join('\n')); }
+  getStream() { return this.getStreams()[0]; }
+}
+
+// ─── Assemblage du fichier PDF final (xref, polices, images) ─────────────
+export function buildPdfDocument(contentStreams, images = []) {
+  const pageCount = contentStreams.length;
+  const pageObjStart = 3;
+  const streamObjStart = pageObjStart + pageCount;
+  const font1ObjNum = streamObjStart + pageCount;   // Helvetica
+  const font2ObjNum = font1ObjNum + 1;               // Helvetica-Bold
+  const font3ObjNum = font2ObjNum + 1;               // Times-Italic
+  const imageObjStart = font3ObjNum + 1;
+  const imageObjNums = images.map((_, i) => imageObjStart + i);
+  const lastObjNum = imageObjStart + images.length - 1;
+
+  const objChunks = new Array(lastObjNum);
+
+  objChunks[0] = [strToBytes(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`)];
+
+  const kidsRef = Array.from({ length: pageCount }, (_, i) => `${pageObjStart + i} 0 R`).join(' ');
+  objChunks[1] = [strToBytes(`2 0 obj\n<< /Type /Pages /Kids [${kidsRef}] /Count ${pageCount} >>\nendobj\n`)];
+
+  const xobjectDict = images.length
+    ? ` /XObject << ${images.map((img, i) => `/${img.id} ${imageObjNums[i]} 0 R`).join(' ')} >>`
+    : '';
+
+  for (let i = 0; i < pageCount; i++) {
+    const pageNum = pageObjStart + i;
+    const streamNum = streamObjStart + i;
+    objChunks[pageNum - 1] = [strToBytes(
+      `${pageNum} 0 obj\n<< /Type /Page /Parent 2 0 R\n` +
+      `/MediaBox [0 0 ${W_PT.toFixed(2)} ${H_PT.toFixed(2)}]\n` +
+      `/Resources << /Font << /F1 ${font1ObjNum} 0 R /F2 ${font2ObjNum} 0 R /F3 ${font3ObjNum} 0 R >>${xobjectDict} >>\n` +
+      `/Contents ${streamNum} 0 R >>\nendobj\n`,
+    )];
+  }
+
+  for (let i = 0; i < pageCount; i++) {
+    const streamNum = streamObjStart + i;
+    const streamBytes = strToBytes(contentStreams[i]);
+    objChunks[streamNum - 1] = [
+      strToBytes(`${streamNum} 0 obj\n<< /Length ${streamBytes.length} >>\nstream\n`),
+      streamBytes,
+      strToBytes(`\nendstream\nendobj\n`),
+    ];
+  }
+
+  objChunks[font1ObjNum - 1] = [strToBytes(`${font1ObjNum} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`)];
+  objChunks[font2ObjNum - 1] = [strToBytes(`${font2ObjNum} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`)];
+  objChunks[font3ObjNum - 1] = [strToBytes(`${font3ObjNum} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Times-Italic >>\nendobj\n`)];
+
+  images.forEach((img, i) => {
+    const objNum = imageObjNums[i];
+    const header = strToBytes(
+      `${objNum} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} ` +
+      `/ColorSpace /${img.colorSpace} /BitsPerComponent ${img.bpc} /Filter /${img.filter} /Length ${img.bytes.length} >>\nstream\n`,
+    );
+    objChunks[objNum - 1] = [header, img.bytes, strToBytes(`\nendstream\nendobj\n`)];
+  });
+
+  const header = strToBytes('%PDF-1.4\n');
+  const offsets = [];
+  const allChunks = [header];
+  let cursor = header.length;
+  for (const chunkList of objChunks) {
+    offsets.push(cursor);
+    for (const chunk of chunkList) { allChunks.push(chunk); cursor += chunk.length; }
+  }
+  const xrefOffset = cursor;
+  const n = lastObjNum + 1;
+  let xrefStr = `xref\n0 ${n}\n0000000000 65535 f \n`;
+  for (const off of offsets) xrefStr += `${String(off).padStart(10, '0')} 00000 n \n`;
+  xrefStr += `trailer\n<< /Size ${n} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  allChunks.push(strToBytes(xrefStr));
+
+  return concatBytes(allChunks);
+}
