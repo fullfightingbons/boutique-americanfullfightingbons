@@ -167,6 +167,12 @@ function drawObjet(p, objet, y) {
   return y + h + 6;
 }
 
+// Ancre commune de la colonne "montants" : le tableau des lignes aligne deja
+// ses valeurs a 193mm (2mm de retrait par rapport au filet a 195mm) — le
+// sous-total et le total final doivent utiliser la meme ancre pour rester
+// visuellement alignes en colonne, au lieu de 3 positions differentes.
+const AMOUNT_X = 193;
+
 // Table de lignes (désignation / qté / pu / total). `lignes` = [{designation, qte, pu, total}]
 function drawLignesTable(p, lignes, yStart) {
   let y = yStart;
@@ -178,7 +184,7 @@ function drawLignesTable(p, lignes, yStart) {
   p.text('DESIGNATION', 18, y + 5.3, { color: WHITE });
   p.text('QTE', 138, y + 5.3, { color: WHITE, align: 'right' });
   p.text('P.U.', 165, y + 5.3, { color: WHITE, align: 'right' });
-  p.text('TOTAL', 193, y + 5.3, { color: WHITE, align: 'right' });
+  p.text('TOTAL', AMOUNT_X, y + 5.3, { color: WHITE, align: 'right' });
   y += 8;
 
   lignes.forEach((l, i) => {
@@ -188,7 +194,7 @@ function drawLignesTable(p, lignes, yStart) {
     if (l.qte != null) p.text(String(l.qte), 138, y + rowH / 2 + 1.6, { color: MUTED, align: 'right' });
     if (l.pu != null) p.text(eur(l.pu), 165, y + rowH / 2 + 1.6, { color: MUTED, align: 'right' });
     p.setFont('F2', 9);
-    p.text(eur(l.total), 193, y + rowH / 2 + 1.6, { color: INK, align: 'right' });
+    p.text(eur(l.total), AMOUNT_X, y + rowH / 2 + 1.6, { color: INK, align: 'right' });
     y += rowH;
   });
 
@@ -203,7 +209,7 @@ function drawTotaux(p, { sousTotal, total, tvaLabel }, y) {
   if (sousTotal != null) {
     p.setFont('F1', 9);
     p.text('Sous-total', boxX, y, { color: MUTED });
-    p.text(eur(sousTotal), 195, y, { color: INK, align: 'right' });
+    p.text(eur(sousTotal), AMOUNT_X, y, { color: INK, align: 'right' });
     y += 5.5;
   }
   p.setFont('F1', 8);
@@ -215,7 +221,7 @@ function drawTotaux(p, { sousTotal, total, tvaLabel }, y) {
   p.setFont('F2', 10.5);
   p.text('TOTAL', boxX + 5, y + 7.2, { color: WHITE });
   p.setFont('F2', 13);
-  p.text(eur(total), boxX + boxW - 5, y + 7.4, { color: DORE_CLAIR, align: 'right' });
+  p.text(eur(total), AMOUNT_X, y + 7.4, { color: DORE_CLAIR, align: 'right' });
   return y + 11 + 8;
 }
 
