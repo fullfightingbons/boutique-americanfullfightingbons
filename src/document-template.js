@@ -17,7 +17,7 @@
  * avant mise en prod, cf. constante MENTION_TVA_DEFAUT ci-dessous).
  */
 
-import { PdfBuilder, buildPdfDocument, addJpegImage, base64ToBytes } from './pdf-engine.js';
+import { PdfBuilder, buildPdfDocument, addJpegImage, base64ToBytes, measureTextWidth, MM } from './pdf-engine.js';
 import { CLUB_LOGO_JPEG_B64, CLUB_LOGO_WIDTH_PX, CLUB_LOGO_HEIGHT_PX } from './club-logo.js';
 
 // ─── Charte graphique commune ─────────────────────────────────────────────
@@ -70,6 +70,18 @@ function titleFontSize(title) {
   return 17;
 }
 
+// Le numero/objet de document (ex: "STAGE CHRISTIAN BATTESTI - GONDRAN
+// PIERRE") peut etre long et variable. Le bloc droit de l'en-tete dispose
+// d'environ 150mm (de x=45mm a x=195mm) avant de recouper le bloc club a
+// gauche : on reduit la taille de police tant que ca ne suffit pas plutot
+// que de laisser le texte deborder.
+function fitNumeroFontSize(text, baseFs, maxWMm) {
+  const maxPt = maxWMm * MM;
+  let fs = baseFs;
+  while (fs > 6.5 && measureTextWidth(text, 'F1', fs) > maxPt) fs -= 0.5;
+  return fs;
+}
+
 function drawHeader(p, { title, numero, dateLabel }) {
   // Bandeau noir
   p.setFillRgb(NOIR);
@@ -100,8 +112,10 @@ function drawHeader(p, { title, numero, dateLabel }) {
   const fs = titleFontSize(title);
   p.setFont('F2', fs);
   p.text(title.toUpperCase(), 195, 15, { align: 'right', color: DORE_CLAIR });
-  p.setFont('F1', 10);
-  p.text(`N° ${numero}`, 195, 23, { align: 'right', color: WHITE });
+  const numeroText = `N° ${numero}`;
+  const numeroFs = fitNumeroFontSize(numeroText, 10, 150);
+  p.setFont('F1', numeroFs);
+  p.text(numeroText, 195, 23, { align: 'right', color: WHITE });
   p.setFont('F1', 8.5);
   p.text(dateLabel, 195, 28.5, { align: 'right', color: [190, 190, 190] });
 }
