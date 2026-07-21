@@ -155,15 +155,43 @@ function drawPartiesBlock(p, { emetteur, destinataire, yStart = 51 }) {
   return yStart + 11 + Math.max(eLines.length, dLines.length) * 4.3 + 4;
 }
 
+// Petit helper de mise en lignes (identique a PdfBuilder.textWrapped, mais
+// sans dessiner tout de suite : on doit connaitre le nombre de lignes AVANT
+// de dessiner le cadre de fond, pour dimensionner sa hauteur).
+function wrapLines(text, fontName, fontSize, maxWMm) {
+  const maxPt = maxWMm * MM;
+  const words = text.split(' ');
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const candidate = cur ? `${cur} ${w}` : w;
+    if (measureTextWidth(candidate, fontName, fontSize) <= maxPt) { cur = candidate; continue; }
+    if (cur) lines.push(cur);
+    cur = w;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
 function drawObjet(p, objet, y) {
   if (!objet) return y;
-  const h = 9;
+  const fs = 9;
+  const lineH = 4.6;
+  // La ligne "Objet" concatene parfois plusieurs infos (numero de commande,
+  // statut, note client...) et pouvait deborder largement au-dela du bord
+  // de page faute de retour a la ligne (jusqu'a ~20mm de trop constate en
+  // test). On calcule maintenant le nombre de lignes necessaires avant de
+  // dessiner le cadre, pour que le cadre grandisse avec le texte au lieu
+  // que le texte deborde du cadre.
+  const lines = wrapLines(`Objet : ${objet}`, 'F3', fs, 170);
+  const h = Math.max(9, lines.length * lineH + 4);
   p.setFillRgb([248, 246, 240]);
   p.rect(15, y, 180, h, 'f');
   p.setFillRgb(DORE_CLAIR);
   p.rect(15, y, 1, h, 'f');
-  p.setFont('F3', 9);
-  p.text(`Objet : ${objet}`, 20, y + h / 2 + 1.5, { color: INK });
+  p.setFont('F3', fs);
+  const ty = y + (h - (lines.length - 1) * lineH) / 2 + 1.5;
+  lines.forEach((l, i) => p.text(l, 20, ty + i * lineH, { color: INK }));
   return y + h + 6;
 }
 
@@ -188,14 +216,16 @@ function drawLignesTable(p, lignes, yStart) {
   y += 8;
 
   lignes.forEach((l, i) => {
-    if (i % 2 === 1) { p.setFillRgb(ROW_ALT); p.rect(15, y, 180, rowH, 'f'); }
+    const nameLines = wrapLines(l.designation, 'F1', 9, 116);
+    const rh = Math.max(rowH, nameLines.length * 4.2 + 3);
+    if (i % 2 === 1) { p.setFillRgb(ROW_ALT); p.rect(15, y, 180, rh, 'f'); }
     p.setFont('F1', 9);
-    p.text(l.designation, 18, y + rowH / 2 + 1.6, { color: INK });
-    if (l.qte != null) p.text(String(l.qte), 138, y + rowH / 2 + 1.6, { color: MUTED, align: 'right' });
-    if (l.pu != null) p.text(eur(l.pu), 165, y + rowH / 2 + 1.6, { color: MUTED, align: 'right' });
+    nameLines.forEach((nl, li) => p.text(nl, 18, y + 4.2 * (li + 1), { color: INK }));
+    if (l.qte != null) p.text(String(l.qte), 138, y + rh / 2 + 1.6, { color: MUTED, align: 'right' });
+    if (l.pu != null) p.text(eur(l.pu), 165, y + rh / 2 + 1.6, { color: MUTED, align: 'right' });
     p.setFont('F2', 9);
-    p.text(eur(l.total), AMOUNT_X, y + rowH / 2 + 1.6, { color: INK, align: 'right' });
-    y += rowH;
+    p.text(eur(l.total), AMOUNT_X, y + rh / 2 + 1.6, { color: INK, align: 'right' });
+    y += rh;
   });
 
   p.setStrokeRgb(LINE);
