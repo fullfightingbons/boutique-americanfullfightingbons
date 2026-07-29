@@ -1244,6 +1244,27 @@
     return escapeHtml(value).replace(/`/g, '&#96;');
   }
 
+  // ── Cloudflare Image Transformations ──────────────────────────
+  // Ne s'applique qu'aux images same-zone (/images/...), le seul cas où
+  // Cloudflare peut aller chercher la source sans authentification. Les
+  // data-URL et URL externes passent inchangées (onerror=redirect protège
+  // aussi en cas d'échec de transformation : l'image d'origine est servie).
+  function cfImageUrl(path, width) {
+    return '/cdn-cgi/image/fit=scale-down,format=auto,onerror=redirect,width=' + width + path;
+  }
+  function cfSrcset(src, widths) {
+    if (!src || !src.startsWith('/images/')) return null;
+    return widths.map(function(w) { return cfImageUrl(src, w) + ' ' + w + 'w'; }).join(', ');
+  }
+  function imgTagWithSrcset(rawSrc, alt, widths, sizes, extraAttrs) {
+    var src = safeImageSrc(rawSrc);
+    if (!src) return null;
+    var srcset = cfSrcset(src, widths);
+    return '<img src="' + escapeAttr(src) + '"' +
+      (srcset ? ' srcset="' + escapeAttr(srcset) + '" sizes="' + escapeAttr(sizes) + '"' : '') +
+      ' alt="' + escapeAttr(alt || '') + '" ' + (extraAttrs || '') + '/>';
+  }
+
   function safeImageSrc(value) {
     const src = String(value || '');
     if (!src) return '';
@@ -1703,7 +1724,7 @@
       return '<div class="product-card" data-cat="' + escapeAttr(p.category) + '" onclick="openProductById(' + pId + ')">' +
         '<div class="product-img">' +
         (safeImageSrc(p.image_url)
-          ? '<img src="' + escapeAttr(safeImageSrc(p.image_url)) + '" alt="' + escapeAttr(p.name || '') + '" loading="lazy" decoding="async" onerror="this.style.display=\'none\'"/>'
+          ? imgTagWithSrcset(p.image_url, p.name, [300, 600, 900], '(max-width: 560px) 100vw, (max-width: 860px) 50vw, 300px', 'loading="lazy" decoding="async" onerror="this.style.display=\'none\'"')
           : '<div class="product-emoji">' + escapeHtml(p.emoji||'📦') + '</div>') +
         (p.badge ? '<span class="product-badge' + (p.badge==='Nouveau'?' new':'') + '">' + escapeHtml(p.badge) + '</span>' : '') +
         '<span class="product-stock-flag ' + stockFlag.className + '">' + escapeHtml(stockFlag.label) + '</span>' +
@@ -2011,7 +2032,7 @@
     grid.innerHTML = items.map(function(l) {
       var emoji = CAT_EMOJI[l.category] || '📦';
       var imgHtml = l.image_url
-        ? '<div class="listing-card-img"><img src="' + escapeHtmlAttr(l.image_url) + '" alt="' + escapeHtmlAttr(l.title) + '" loading="lazy"/></div>'
+        ? '<div class="listing-card-img">' + (imgTagWithSrcset(l.image_url, l.title, [300, 600, 900], '(max-width: 540px) 100vw, (max-width: 860px) 50vw, 280px', 'loading="lazy"') || '') + '</div>'
         : '<div class="listing-card-img">' + emoji + '</div>';
       return '<div class="listing-card" onclick="openListingDetail(' + l.id + ')">' +
         imgHtml +
