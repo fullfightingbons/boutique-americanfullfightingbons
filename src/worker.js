@@ -1254,16 +1254,33 @@ async function updateOrderStatus(request, env, params) {
 
 async function getAdminOrders(_req, env, _params, url) {
   const status = url.searchParams.get('status');
-  let query, args;
+  // Pagination optionnelle : par défaut identique au comportement actuel
+  // (100 plus récentes, aucun paramètre requis). Le total est renvoyé en
+  // en-tête (X-Total-Count) pour ne pas changer la forme de la réponse
+  // (un tableau brut, dont le frontend actuel fait data.map()/.length).
+  const MAX_LIMIT = 500;
+  let limit = parseInt(url.searchParams.get('limit'), 10);
+  if (!Number.isFinite(limit) || limit <= 0) limit = 100;
+  limit = Math.min(limit, MAX_LIMIT);
+  let offset = parseInt(url.searchParams.get('offset'), 10);
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+  let query, countQuery, args;
   if (status) {
-    query = 'SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC LIMIT 100';
-    args  = [status];
+    query      = 'SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    countQuery = 'SELECT COUNT(*) as n FROM orders WHERE status = ?';
+    args       = [status, limit, offset];
   } else {
-    query = 'SELECT * FROM orders ORDER BY created_at DESC LIMIT 100';
-    args  = [];
+    query      = 'SELECT * FROM orders ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    countQuery = 'SELECT COUNT(*) as n FROM orders';
+    args       = [limit, offset];
   }
-  const { results } = await env.DB.prepare(query).bind(...args).all();
-  return json(results);
+  const countArgs = status ? [status] : [];
+  const [{ results }, countRow] = await Promise.all([
+    env.DB.prepare(query).bind(...args).all(),
+    env.DB.prepare(countQuery).bind(...countArgs).first(),
+  ]);
+  return json(results, 200, { 'X-Total-Count': String(countRow?.n ?? 0) });
 }
 
 async function getStats(_req, env) {

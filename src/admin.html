@@ -453,6 +453,7 @@
           <tbody id="ordersTableBody"><tr><td colspan="7" class="loader">Chargement…</td></tr></tbody>
         </table>
       </div>
+      <div id="ordersLoadMoreWrap" style="display:flex;align-items:center;gap:12px;margin-top:12px"></div>
     </div>
 
     <!-- ── TAB ANNONCES D'OCCASION ── -->
@@ -595,7 +596,7 @@ async function api(method, path, body) {
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res  = await fetch(path, opts);
   const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data };
+  return { ok: res.ok, status: res.status, data, headers: res.headers };
 }
 
 async function apiForm(path, formData) {
@@ -1167,16 +1168,12 @@ async function uploadImageFile() {
 // ════════════════════════════════════════════════════════════════
 //  COMMANDES
 // ════════════════════════════════════════════════════════════════
-async function loadOrders() {
-  const status = document.getElementById('orderStatusFilter').value;
-  const url    = status ? `/api/admin/orders?status=${status}` : '/api/admin/orders';
-  const { ok, data } = await api('GET', url);
-  const tbody  = document.getElementById('ordersTableBody');
+let ordersOffset = 0;
+let ordersTotal  = 0;
+const ORDERS_PAGE_SIZE = 100;
 
-  if (!ok) { tbody.innerHTML = '<tr><td colspan="7" style="color:var(--red)">Erreur</td></tr>'; return; }
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" class="loader">Aucune commande</td></tr>'; return; }
-
-  tbody.innerHTML = data.map(o => `
+function orderRowHtml(o) {
+  return `
     <tr>
       <td><strong>#${String(o.id).padStart(4,'0')}</strong></td>
       <td>${escapeHtml(o.customer_name)}</td>
@@ -1191,7 +1188,42 @@ async function loadOrders() {
           <button class="btn btn-dark btn-sm" onclick="sendInvoice(${o.id})" title="Envoyer la facture par email">📧 Facture</button>
         </div>
       </td>
-    </tr>`).join('');
+    </tr>`;
+}
+
+function renderOrdersLoadMore(loadedCount) {
+  const wrap = document.getElementById('ordersLoadMoreWrap');
+  if (ordersTotal <= loadedCount) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = `
+    <button class="btn btn-dark btn-sm" onclick="loadMoreOrders()">Charger plus</button>
+    <span style="font-size:12px;color:var(--gray)">${loadedCount} / ${ordersTotal} commandes</span>`;
+}
+
+async function loadOrders() {
+  const status = document.getElementById('orderStatusFilter').value;
+  ordersOffset = 0;
+  const url = `/api/admin/orders?limit=${ORDERS_PAGE_SIZE}` + (status ? `&status=${status}` : '');
+  const { ok, data, headers } = await api('GET', url);
+  const tbody = document.getElementById('ordersTableBody');
+  ordersTotal = Number(headers?.get?.('X-Total-Count')) || data.length || 0;
+
+  if (!ok) { tbody.innerHTML = '<tr><td colspan="7" style="color:var(--red)">Erreur</td></tr>'; document.getElementById('ordersLoadMoreWrap').innerHTML = ''; return; }
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" class="loader">Aucune commande</td></tr>'; document.getElementById('ordersLoadMoreWrap').innerHTML = ''; return; }
+
+  tbody.innerHTML = data.map(orderRowHtml).join('');
+  ordersOffset = data.length;
+  renderOrdersLoadMore(ordersOffset);
+}
+
+async function loadMoreOrders() {
+  const status = document.getElementById('orderStatusFilter').value;
+  const url = `/api/admin/orders?limit=${ORDERS_PAGE_SIZE}&offset=${ordersOffset}` + (status ? `&status=${status}` : '');
+  const { ok, data, headers } = await api('GET', url);
+  if (!ok || !data.length) return;
+  ordersTotal = Number(headers?.get?.('X-Total-Count')) || ordersTotal;
+  document.getElementById('ordersTableBody').insertAdjacentHTML('beforeend', data.map(orderRowHtml).join(''));
+  ordersOffset += data.length;
+  renderOrdersLoadMore(ordersOffset);
 }
 
 async function viewOrder(id) {
