@@ -19,6 +19,8 @@
     "db:migrate:helloasso:remote": "wrangler d1 execute boutique-americanfullfightingbons --remote --file=migration_orders_helloasso.sql",
     "db:migrate:finalize-payment": "wrangler d1 execute boutique-americanfullfightingbons --file=migration_orders_finalize_payment.sql",
     "db:migrate:finalize-payment:remote": "wrangler d1 execute boutique-americanfullfightingbons --remote --file=migration_orders_finalize_payment.sql",
+    "db:migrate:stock-alerts": "wrangler d1 execute boutique-americanfullfightingbons --file=migration_stock_alerts.sql",
+    "db:migrate:stock-alerts:remote": "wrangler d1 execute boutique-americanfullfightingbons --remote --file=migration_stock_alerts.sql",
     "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {

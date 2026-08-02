@@ -55,6 +55,7 @@ const routes = [
   // ── Produits publics ──────────────────────────────────────────
   route('GET',   '/api/products',            getProducts),
   route('GET',   '/api/products/:id',        getProduct),
+  route('POST',  '/api/products/:id/notify-me', subscribeStockAlert),
 
   // ── Produits admin ────────────────────────────────────────────
   route('GET',   '/api/admin/products',      getAdminProducts, true),
@@ -68,6 +69,9 @@ const routes = [
   route('GET',   '/api/orders/:id',          getOrder),
   route('GET',   '/api/member/orders',              getMemberOrders),
   route('GET',   '/api/member/orders/:id/invoice',  getMemberOrderInvoice),
+  route('GET',   '/api/wishlist',             getWishlist),
+  route('POST',  '/api/wishlist',             addWishlistItem),
+  route('DELETE','/api/wishlist/:productId',  removeWishlistItem),
   route('PATCH', '/api/orders/:id',          updateOrderStatus, true),
   route('GET',   '/api/admin/orders',        getAdminOrders,    true),
   route('GET',   '/api/admin/stats',         getStats,          true),
@@ -806,11 +810,95 @@ async function createProduct(request, env) {
 
 // PATCH /api/admin/products/:id
 // Body: { name?, category?, price?, price_old?, emoji?, badge?, stock?, description?, sizes?, size_stocks? }
+// POST /api/products/:id/notify-me [public]
+// Body: { email, size? } — size omis/null pour un produit sans déclinaison.
+async function subscribeStockAlert(request, env, params) {
+  const body = await request.json().catch(() => ({}));
+  const email = normalizeEmail(body.email);
+  if (!email || !email.includes('@')) return json({ error: 'Email invalide' }, 400);
+  const productId = Number(params.id);
+  if (!Number.isInteger(productId)) return json({ error: 'Produit invalide' }, 400);
+
+  const product = await env.DB.prepare('SELECT id, sizes FROM products WHERE id = ?').bind(productId).first();
+  if (!product) return json({ error: 'Produit introuvable' }, 404);
+
+  const sizes = product.sizes ? JSON.parse(product.sizes) : [];
+  const size = body.size ? normalizeText(body.size, 12) : null;
+  if (size && !sizes.includes(size)) return json({ error: 'Taille invalide pour ce produit' }, 400);
+
+  // NULL n'est pas déduplifié par une contrainte UNIQUE en SQLite (deux
+  // NULL ne sont jamais "égaux") : on vérifie donc l'existence à la main
+  // plutôt que de compter sur UNIQUE(product_id, size, email).
+  const existing = await env.DB.prepare(
+    size
+      ? 'SELECT id FROM stock_alerts WHERE product_id = ? AND size = ? AND email = ?'
+      : 'SELECT id FROM stock_alerts WHERE product_id = ? AND size IS NULL AND email = ?'
+  ).bind(...(size ? [productId, size, email] : [productId, email])).first();
+  if (existing) return json({ success: true, already_subscribed: true });
+
+  await env.DB.prepare('INSERT INTO stock_alerts (product_id, size, email) VALUES (?, ?, ?)')
+    .bind(productId, size, email).run();
+  return json({ success: true });
+}
+
+// Envoi Brevo générique (les autres flux de boutique construisent leur
+// payload en ligne au cas par cas ; ce helper réutilisable évite de
+// dupliquer la structure pour les alertes de disponibilité).
+async function sendSimpleBrevoEmail(env, { to, toName, subject, html }) {
+  if (!env.BREVO_API_KEY) {
+    console.warn('BREVO_API_KEY manquant : email non envoyé (' + subject + ')');
+    return { ok: false };
+  }
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': env.BREVO_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sender: { name: env.BREVO_FROM_NAME || 'AFFB Boutique', email: env.BREVO_FROM_EMAIL || MAIL_SENDER_EMAIL },
+      to: [{ email: to, name: toName || to }],
+      subject,
+      htmlContent: html,
+    }),
+  });
+  if (!res.ok) console.error('Brevo error', res.status, await res.text().catch(() => ''));
+  return { ok: res.ok };
+}
+
+// Prévient les abonnés d'une taille (ou d'un produit sans taille) qui vient
+// de repasser de 0 à un stock positif, puis retire leur alerte (envoi
+// unique, pas de rappel en boucle si le stock refluctue ensuite).
+async function notifyStockAlertSubscribers(env, productId, productName, size) {
+  const { results } = await env.DB.prepare(
+    size
+      ? 'SELECT id, email FROM stock_alerts WHERE product_id = ? AND size = ?'
+      : 'SELECT id, email FROM stock_alerts WHERE product_id = ? AND size IS NULL'
+  ).bind(...(size ? [productId, size] : [productId])).all();
+  if (!results?.length) return;
+
+  const shopUrl = 'https://boutique.americanfullfightingbons.fr/';
+  for (const row of results) {
+    await sendSimpleBrevoEmail(env, {
+      to: row.email,
+      subject: `De retour en stock — ${productName}`,
+      html: `<p>Bonne nouvelle : <strong>${escapeHtml(productName)}</strong>${size ? ` (taille ${escapeHtml(size)})` : ''} est de nouveau disponible sur la boutique du club.</p><p><a href="${shopUrl}">Voir la boutique</a></p>`,
+    });
+  }
+  await env.DB.prepare(
+    size ? 'DELETE FROM stock_alerts WHERE product_id = ? AND size = ?' : 'DELETE FROM stock_alerts WHERE product_id = ? AND size IS NULL'
+  ).bind(...(size ? [productId, size] : [productId])).run();
+}
+
+
+// PATCH /api/admin/products/:id
+// Body: { name?, category?, price?, price_old?, emoji?, badge?, stock?, description?, sizes?, size_stocks? }
 async function updateProduct(request, env, params) {
   const body = await request.json();
   const fields = ['name', 'category', 'price', 'price_old', 'emoji', 'badge', 'stock', 'description', 'sizes', 'size_stocks'];
   const sets = [];
   const values = [];
+  // Stock avant modification, pour détecter un retour en stock (0 -> positif)
+  // après l'UPDATE et prévenir les abonnés de subscribeStockAlert.
+  const before = await env.DB.prepare('SELECT name, stock, size_stocks FROM products WHERE id = ?').bind(params.id).first();
+  const beforeSizeStocks = before?.size_stocks ? JSON.parse(before.size_stocks) : null;
   for (const f of fields) {
     if (f in body) {
       if (f === 'size_stocks') {
@@ -846,6 +934,24 @@ async function updateProduct(request, env, params) {
   sets.push("updated_at = datetime('now')");
   values.push(params.id);
   await env.DB.prepare(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
+
+  // Retour en stock : ne prévient que pour les tailles (ou le produit sans
+  // taille) qui passent de 0 à un stock positif suite à CETTE modification.
+  if (before && 'size_stocks' in body) {
+    const afterRaw = body.size_stocks && typeof body.size_stocks === 'object' ? body.size_stocks : {};
+    for (const [size, qty] of Object.entries(afterRaw)) {
+      const wasEmpty = !beforeSizeStocks || Number(beforeSizeStocks[size] || 0) <= 0;
+      if (wasEmpty && Number(qty) > 0) {
+        await notifyStockAlertSubscribers(env, Number(params.id), before.name, normalizeText(size, 12));
+      }
+    }
+  } else if (before && 'stock' in body) {
+    const wasEmpty = Number(before.stock || 0) <= 0;
+    if (wasEmpty && Number(body.stock) > 0) {
+      await notifyStockAlertSubscribers(env, Number(params.id), before.name, null);
+    }
+  }
+
   return json({ success: true });
 }
 
@@ -979,16 +1085,21 @@ async function releaseReservedStockForItems(env, items) {
     const sizeMatch = /\(([^()]+)\)\s*$/.exec(item.product_name || '');
     const size = item.size || (sizeMatch ? sizeMatch[1] : null);
     if (size) {
-      const current = await env.DB.prepare('SELECT size_stocks FROM products WHERE id = ?').bind(item.product_id).first();
+      const current = await env.DB.prepare('SELECT name, size_stocks FROM products WHERE id = ?').bind(item.product_id).first();
       const sizeStocks = current?.size_stocks ? JSON.parse(current.size_stocks) : {};
+      const wasEmpty = Number(sizeStocks[size] || 0) <= 0;
       sizeStocks[size] = (Number(sizeStocks[size]) || 0) + quantity;
       await env.DB.prepare(
         "UPDATE products SET stock = stock + ?, size_stocks = ?, updated_at = datetime('now') WHERE id = ?"
       ).bind(quantity, JSON.stringify(sizeStocks), item.product_id).run();
+      if (wasEmpty && current) await notifyStockAlertSubscribers(env, item.product_id, current.name, size);
     } else {
+      const current = await env.DB.prepare('SELECT name, stock FROM products WHERE id = ?').bind(item.product_id).first();
+      const wasEmpty = Number(current?.stock || 0) <= 0;
       await env.DB.prepare(
         "UPDATE products SET stock = stock + ?, updated_at = datetime('now') WHERE id = ?"
       ).bind(quantity, item.product_id).run();
+      if (wasEmpty && current) await notifyStockAlertSubscribers(env, item.product_id, current.name, null);
     }
   }
 }
@@ -1199,6 +1310,48 @@ async function getMemberOrders(request, env) {
   for (const order of orders) order.items = itemsByOrder.get(order.id) || [];
 
   return json({ data: orders }, 200, { 'Cache-Control': 'private, no-store' });
+}
+
+// ── Liste de souhaits (espace membre) ─────────────────────────
+// Par email, sans session — même modèle que subscribeStockAlert. La
+// boutique publique n'a pas de connexion membre pour déclencher l'ajout ;
+// plutôt qu'un mélange (ajout par email, lecture par session), les 3
+// endpoints restent cohérents. Donnée à faible enjeu (une liste d'envies,
+// pas une donnée financière ou personnelle) : ce choix est le même
+// compromis déjà fait pour l'alerte de disponibilité.
+async function getWishlist(request, env) {
+  const url = new URL(request.url);
+  const email = normalizeEmail(url.searchParams.get('email') || '');
+  if (!email || !email.includes('@')) return json({ error: 'Email invalide' }, 400);
+  const { results } = await env.DB.prepare(
+    `SELECT w.product_id, w.created_at, p.name, p.price, p.image_url, p.stock, p.size_stocks, p.category
+     FROM wishlist_items w JOIN products p ON p.id = w.product_id
+     WHERE LOWER(TRIM(w.member_email)) = ?
+     ORDER BY w.created_at DESC`
+  ).bind(email).all();
+  return json({ data: results || [] }, 200, { 'Cache-Control': 'private, no-store' });
+}
+async function addWishlistItem(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const email = normalizeEmail(body.email);
+  if (!email || !email.includes('@')) return json({ error: 'Email invalide' }, 400);
+  const productId = Number(body.product_id);
+  if (!Number.isInteger(productId)) return json({ error: 'Produit invalide' }, 400);
+  const product = await env.DB.prepare('SELECT id FROM products WHERE id = ?').bind(productId).first();
+  if (!product) return json({ error: 'Produit introuvable' }, 404);
+  await env.DB.prepare(
+    'INSERT INTO wishlist_items (member_email, product_id) VALUES (?, ?) ON CONFLICT(member_email, product_id) DO NOTHING'
+  ).bind(email, productId).run();
+  return json({ success: true });
+}
+async function removeWishlistItem(request, env, params) {
+  const url = new URL(request.url);
+  const email = normalizeEmail(url.searchParams.get('email') || '');
+  if (!email || !email.includes('@')) return json({ error: 'Email invalide' }, 400);
+  const productId = Number(params.productId);
+  if (!Number.isInteger(productId)) return json({ error: 'Produit invalide' }, 400);
+  await env.DB.prepare('DELETE FROM wishlist_items WHERE member_email = ? AND product_id = ?').bind(email, productId).run();
+  return json({ success: true });
 }
 
 async function getMemberOrderInvoice(request, env, params) {

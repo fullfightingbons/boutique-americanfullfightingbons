@@ -350,6 +350,15 @@
     padding: 3px 11px; border-radius: var(--radius-pill); text-transform: uppercase; letter-spacing: 0.06em;
   }
   .product-badge.new { background: var(--gold); }
+  .wishlist-heart {
+    position: absolute; bottom: 10px; right: 10px; z-index: 3;
+    width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer;
+    background: rgba(7,17,29,0.75); color: rgba(255,255,255,0.7);
+    font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center;
+    transition: transform .15s, color .15s, background .15s;
+  }
+  .wishlist-heart:hover { transform: scale(1.1); color: var(--red); }
+  .wishlist-heart.active { color: var(--red); background: rgba(255,255,255,0.9); }
   .product-stock-flag {
     position: absolute;
     top: 12px;
@@ -556,7 +565,12 @@
   }
   .size-btn:hover:not(.out-of-stock) { border-color: var(--red); color: var(--paper); }
   .size-btn.selected { background: var(--red); border-color: var(--red); color: var(--paper); }
-  .size-btn.out-of-stock { opacity: 0.3; cursor: not-allowed; text-decoration: line-through; }
+  .size-btn.out-of-stock { opacity: 0.4; cursor: pointer; text-decoration: line-through; }
+  .notify-form { margin-top: .75rem; padding: .85rem 1rem; background: var(--navy-4); border: 1px solid rgba(255,255,255,.1); border-radius: var(--radius); }
+  .notify-form p { margin: 0 0 .6rem; font-size: 13px; color: var(--gray); }
+  .notify-form-row { display: flex; gap: 8px; }
+  .notify-form-row input { flex: 1; min-width: 0; background: var(--navy-3); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; color: var(--paper); padding: 0 .75rem; height: 40px; font-size: 14px; }
+  .notify-form-done { margin: .75rem 0 0; padding: .6rem .85rem; background: rgba(60,140,90,.15); border: 1px solid rgba(60,140,90,.3); border-radius: var(--radius); font-size: 13px; color: var(--paper); }
   .size-stock-badge {
     position: absolute; top: -6px; right: -6px;
     background: var(--navy-2); border: 1px solid rgba(255,255,255,0.15);
@@ -1265,6 +1279,60 @@
       ' alt="' + escapeAttr(alt || '') + '" ' + (extraAttrs || '') + '/>';
   }
 
+  // ── Liste de souhaits (favoris) ────────────────────────────
+  // Pas de connexion membre dans la boutique publique : l'email est
+  // demandé une fois puis gardé en local. Le cœur reflète l'état de CE
+  // navigateur (localStorage) ; la vue complète et fiable (autre
+  // appareil compris) est dans l'espace membre.
+  var WISHLIST_EMAIL_KEY = 'affbc_wishlist_email';
+  var WISHLIST_IDS_KEY = 'affbc_wishlist_ids';
+  function getWishlistIds() {
+    try { return new Set(JSON.parse(localStorage.getItem(WISHLIST_IDS_KEY) || '[]')); }
+    catch { return new Set(); }
+  }
+  function saveWishlistIds(ids) {
+    try { localStorage.setItem(WISHLIST_IDS_KEY, JSON.stringify(Array.from(ids))); } catch {}
+  }
+  function isInWishlist(productId) { return getWishlistIds().has(Number(productId)); }
+  async function toggleWishlist(productId, btn) {
+    var ids = getWishlistIds();
+    var already = ids.has(Number(productId));
+    if (already) {
+      ids.delete(Number(productId));
+      saveWishlistIds(ids);
+      if (btn) btn.classList.remove('active');
+      var storedEmail = localStorage.getItem(WISHLIST_EMAIL_KEY);
+      if (storedEmail) {
+        fetch('/api/wishlist/' + productId + '?email=' + encodeURIComponent(storedEmail), { method: 'DELETE' }).catch(function(){});
+      }
+      return;
+    }
+    var email = localStorage.getItem(WISHLIST_EMAIL_KEY);
+    if (!email) {
+      email = (prompt('Votre email, pour retrouver vos favoris plus tard :') || '').trim();
+      if (!email || email.indexOf('@') === -1) { showToast('⚠ Email invalide', 2000); return; }
+      localStorage.setItem(WISHLIST_EMAIL_KEY, email);
+    }
+    try {
+      var res = await fetch('/api/wishlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, product_id: productId }),
+      });
+      if (!res.ok) {
+        var d = await res.json().catch(function(){ return {}; });
+        showToast('⚠ ' + (d.error || 'Erreur'), 2500);
+        return;
+      }
+      ids.add(Number(productId));
+      saveWishlistIds(ids);
+      if (btn) btn.classList.add('active');
+      showToast('♥ Ajouté aux favoris', 1800);
+    } catch {
+      showToast('⚠ Erreur réseau, réessayez', 2500);
+    }
+  }
+
   function safeImageSrc(value) {
     const src = String(value || '');
     if (!src) return '';
@@ -1588,8 +1656,7 @@
         return '<button class="size-btn' + (oos ? ' out-of-stock' : '') +
   '" data-size="' + escapeAttr(s) +
   '" data-stock="' + qty + '"' +
-  (oos ? ' disabled' : '') +
-  ' onclick="selectSize(this, \'' + escapeAttr(String(s)) + '\', ' + qty + ')">' +
+  ' onclick="' + (oos ? 'showNotifyForm(\'' + escapeAttr(String(s)) + '\')' : 'selectSize(this, \'' + escapeAttr(String(s)) + '\', ' + qty + ')') + '">' +
   escapeHtml(s) +
   '<span class="size-stock-badge' + (low ? ' low' : '') + '">' +
   (oos ? '✕' : qty) +
@@ -1615,10 +1682,49 @@
       addBtn.disabled = p.stock <= 0;
       addBtn.textContent = p.stock <= 0 ? 'Rupture de stock' : '+ Ajouter au panier';
     }
+    document.getElementById('productModalNotify').innerHTML = (sizes.length === 0 && p.stock <= 0) ? notifyFormHtml(null) : '';
 
     updateQtyBounds();
     document.getElementById('productModal').classList.add('open');
     document.body.style.overflow = 'hidden';
+  }
+
+  // ── Alerte de disponibilité (produit/taille en rupture) ──────
+  function notifyFormHtml(size) {
+    const sizeAttr = size ? escapeAttr(size) : '';
+    const label = size ? ('Prévenez-moi quand la taille ' + escapeHtml(size) + ' revient') : 'Prévenez-moi quand ce produit revient';
+    return '<div class="notify-form">' +
+      '<p>' + label + '</p>' +
+      '<div class="notify-form-row">' +
+      '<input type="email" id="notifyEmailInput" placeholder="votre.email@exemple.fr" autocomplete="email">' +
+      '<button type="button" class="btn btn-dark btn-sm" onclick="submitNotifyForm(\'' + sizeAttr + '\')">Me prévenir</button>' +
+      '</div></div>';
+  }
+  function showNotifyForm(size) {
+    document.querySelectorAll('#productModalSizes .size-btn').forEach(function(b) { b.classList.remove('selected'); });
+    selectedSize = null;
+    document.getElementById('productModalNotify').innerHTML = notifyFormHtml(size);
+  }
+  async function submitNotifyForm(size) {
+    const input = document.getElementById('notifyEmailInput');
+    const email = (input?.value || '').trim();
+    if (!email || !email.includes('@')) { showToast('⚠ Email invalide', 2000); return; }
+    if (!currentModalProduct) return;
+    try {
+      const res = await fetch('/api/products/' + currentModalProduct.id + '/notify-me', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, size: size || undefined }),
+      });
+      const data = await res.json().catch(function() { return {}; });
+      if (res.ok) {
+        document.getElementById('productModalNotify').innerHTML = '<p class="notify-form-done">✓ ' + (data.already_subscribed ? 'Vous étiez déjà inscrit·e — on vous préviendra.' : 'C\'est noté, on vous prévient dès le retour en stock.') + '</p>';
+      } else {
+        showToast('⚠ ' + (data.error || 'Erreur, réessayez'), 2500);
+      }
+    } catch {
+      showToast('⚠ Erreur réseau, réessayez', 2500);
+    }
   }
 
   function selectSize(btn, size, stock) {
@@ -1626,6 +1732,7 @@
     document.querySelectorAll('#productModalSizes .size-btn').forEach(function(b) { b.classList.remove('selected'); });
     btn.classList.add('selected');
     selectedSize = size;
+    document.getElementById('productModalNotify').innerHTML = '';
     const stockInfo = document.getElementById('productModalStock');
     const addBtn = document.getElementById('productModalAddBtn');
     if (stock <= 3) {
@@ -1729,6 +1836,7 @@
         (p.badge ? '<span class="product-badge' + (p.badge==='Nouveau'?' new':'') + '">' + escapeHtml(p.badge) + '</span>' : '') +
         '<span class="product-stock-flag ' + stockFlag.className + '">' + escapeHtml(stockFlag.label) + '</span>' +
         (hasSizes ? '<span style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.7);color:var(--gray);font-size:10px;padding:3px 7px;font-family:var(--font-display);font-weight:600;letter-spacing:.06em">' + escapeHtml(sizes.join(' · ')) + '</span>' : '') +
+        '<button class="wishlist-heart' + (isInWishlist(pId) ? ' active' : '') + '" data-product-id="' + pId + '" onclick="event.stopPropagation();toggleWishlist(' + pId + ', this)" title="Ajouter aux favoris" aria-label="Ajouter aux favoris">♥</button>' +
         '</div>' +
         '<div class="product-info">' +
         '<div class="product-cat">' + escapeHtml(capitalize(p.category)) + '</div>' +
@@ -1922,6 +2030,7 @@
         <div class="size-grid" id="productModalSizes"></div>
       </div>
       <div class="stock-info" id="productModalStock"></div>
+      <div id="productModalNotify"></div>
       <div style="margin-top:1rem">
   <div class="size-selector-label" id="productQtyLabel">Quantité</div>
   <div style="display:flex;align-items:center;gap:10px">
