@@ -69,6 +69,7 @@ const routes = [
   route('GET',   '/api/orders/:id',          getOrder),
   route('GET',   '/api/member/orders',              getMemberOrders),
   route('GET',   '/api/member/orders/:id/invoice',  getMemberOrderInvoice),
+  route('POST',  '/api/member/email-transfer',      transferMemberEmail),
   route('GET',   '/api/wishlist',             getWishlist),
   route('POST',  '/api/wishlist',             addWishlistItem),
   route('DELETE','/api/wishlist/:productId',  removeWishlistItem),
@@ -1352,6 +1353,49 @@ async function removeWishlistItem(request, env, params) {
   if (!Number.isInteger(productId)) return json({ error: 'Produit invalide' }, 400);
   await env.DB.prepare('DELETE FROM wishlist_items WHERE member_email = ? AND product_id = ?').bind(email, productId).run();
   return json({ success: true });
+}
+
+// POST /api/member/email-transfer — appelé par l'espace membre juste après un
+// changement d'email de connexion réussi côté gestion (POST /api/member/
+// email/change), pour reporter l'historique boutique de l'adhérent sur sa
+// nouvelle adresse : sans ça, sa liste de souhaits et ses commandes passées
+// (donc l'accès à ses propres factures depuis "Mes commandes boutique")
+// deviendraient invisibles, cherchées par email comme le reste de l'espace
+// membre.
+//
+// Authentification asymétrique, à dessein : newEmail vient du jeton membre
+// vérifié (requireMember, jamais un champ fourni par l'appelant), oldEmail
+// est fourni tel quel dans le corps de la requête et n'est vérifié nulle
+// part. Un compte pourrait donc en théorie déclarer un oldEmail arbitraire
+// et récupérer la wishlist qui y était associée — mais jamais rediriger la
+// wishlist de quelqu'un d'autre ailleurs que vers son propre compte
+// authentifié. Compromis jugé acceptable : même tolérance déjà acceptée
+// pour la wishlist elle-même (ajout/lecture/suppression par email seul,
+// sans session, cf. getWishlist).
+//
+// wishlist_items : UPDATE OR IGNORE — une ligne qui existerait déjà sous la
+// nouvelle adresse pour le même produit est laissée de côté sous l'ancienne
+// plutôt que de faire échouer tout le batch (UNIQUE(member_email,
+// product_id) l'interdirait sinon).
+// orders.customer_email : migré pour l'affichage et l'accès aux factures
+// côté membre. payments.payer_email n'est PAS touché : c'est ce que
+// HelloAsso a rapporté au moment du paiement, pas une donnée de compte à
+// jour — le altérer romprait la piste d'audit du paiement.
+async function transferMemberEmail(request, env) {
+  const member = await requireMember(request, env);
+  if (!member) return json({ error: 'Non autorisé' }, 401);
+
+  const body = await request.json().catch(() => ({}));
+  const oldEmail = normalizeEmail(body.oldEmail);
+  const newEmail = String(member.email || '').trim().toLowerCase();
+  if (!oldEmail || !oldEmail.includes('@')) return json({ error: 'Email invalide' }, 400);
+  if (oldEmail === newEmail) return json({ success: true, moved: false });
+
+  await env.DB.batch([
+    env.DB.prepare('UPDATE OR IGNORE wishlist_items SET member_email = ? WHERE member_email = ?').bind(newEmail, oldEmail),
+    env.DB.prepare('UPDATE orders SET customer_email = ? WHERE LOWER(TRIM(customer_email)) = ?').bind(newEmail, oldEmail),
+  ]);
+  return json({ success: true, moved: true });
 }
 
 async function getMemberOrderInvoice(request, env, params) {
