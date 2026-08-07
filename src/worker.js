@@ -15,6 +15,7 @@ import CGV_HTML from './cgv.html';
 import { buildHelloAssoPaymentState } from './helloasso-helpers.mjs';
 import { buildDocumentPdfBytes } from './document-template.js';
 import { bytesToBase64 } from './pdf-engine.js';
+import { LOGO_JPG_BASE64, FAVICON_ICO_BASE64, APPLE_TOUCH_ICON_BASE64, ICON_512_BASE64 } from './static-assets.js';
 
 const CLUB_CONTACT_EMAIL = 'fullfightingbons@gmail.com';
 const MAIL_SENDER_EMAIL = 'contact@americanfullfightingbons.fr';
@@ -69,7 +70,6 @@ const routes = [
   route('GET',   '/api/orders/:id',          getOrder),
   route('GET',   '/api/member/orders',              getMemberOrders),
   route('GET',   '/api/member/orders/:id/invoice',  getMemberOrderInvoice),
-  route('POST',  '/api/member/email-transfer',      transferMemberEmail),
   route('GET',   '/api/wishlist',             getWishlist),
   route('POST',  '/api/wishlist',             addWishlistItem),
   route('DELETE','/api/wishlist/:productId',  removeWishlistItem),
@@ -127,6 +127,13 @@ export default {
       return cors(new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>https://boutique.americanfullfightingbons.fr/</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n</urlset>\n', {
         headers: securityHeaders({ 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }),
       }), request, env);
+    }
+
+    // Logo + favicon : assets fixes embarqués dans le Worker (cf.
+    // static-assets.js), servis une seule fois et mis en cache long par le
+    // navigateur — plutôt que le logo dupliqué en base64 dans chaque page.
+    if ((request.method === 'GET' || request.method === 'HEAD') && STATIC_ASSET_ROUTES[pathname]) {
+      return cors(serveStaticAsset(STATIC_ASSET_ROUTES[pathname], request.method === 'HEAD'), request, env);
     }
 
     // Route spéciale : images R2 (clé avec sous-chemin ex: products/1-xxx.jpg)
@@ -203,7 +210,7 @@ function securityHeaders(base = {}) {
     'X-Frame-Options': 'DENY',
     // preload : ne pas activer tant que le domaine n'est pas soumis à hstspreload.org
     'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://api.helloasso.com https://api.brevo.com https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://api.helloasso.com https://api.brevo.com https://challenges.cloudflare.com https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     ...base,
   };
 }
@@ -401,6 +408,18 @@ async function ensureSupportTables(env) {
       paid_at TEXT,
       raw_payload TEXT,
       created_at TEXT DEFAULT (datetime('now'))
+    )`),
+    // Rate limiting générique pour les endpoints publics non protégés par
+    // Turnstile (notify-me, wishlist) : ces routes acceptent l'email de
+    // n'importe qui sans vérification, isPublicActionRateLimited() borne
+    // le nombre d'appels par IP pour limiter l'abus (ex: inscrire l'email
+    // d'un tiers en boucle). Cf. migration_public_action_attempts.sql pour
+    // les bases déjà déployées.
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS public_action_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ip TEXT NOT NULL,
+      action TEXT NOT NULL,
+      attempted_at TEXT DEFAULT (datetime('now'))
     )`),
   ]);
 }
@@ -638,6 +657,28 @@ async function recordAdminLoginAttempt(env, ip, success) {
   }
 }
 
+// Rate limiting générique par IP pour les routes publiques non protégées
+// par Turnstile (notify-me, wishlist). `action` distingue les compteurs
+// entre routes (ex: 'stock_alert', 'wishlist_add') pour qu'elles n'entrent
+// pas en compétition sur le même quota.
+async function isPublicActionRateLimited(env, ip, action, maxAttempts, windowMinutes) {
+  await ensureSupportTables(env);
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) as count FROM public_action_attempts WHERE ip = ? AND action = ? AND attempted_at > datetime('now', '-' || ? || ' minutes')"
+  ).bind(ip, action, windowMinutes).first();
+  return Number(row?.count || 0) >= maxAttempts;
+}
+
+async function recordPublicAction(env, ip, action) {
+  await ensureSupportTables(env);
+  await env.DB.prepare('INSERT INTO public_action_attempts (ip, action) VALUES (?, ?)').bind(ip, action).run();
+  // Purge légère pour éviter que la table ne grossisse indéfiniment (même
+  // logique que recordAdminLoginAttempt : nettoyage opportuniste, pas de cron dédié)
+  if (Math.random() < 0.05) {
+    await env.DB.prepare("DELETE FROM public_action_attempts WHERE attempted_at < datetime('now', '-2 days')").run();
+  }
+}
+
 // POST /api/admin/login  — body: { password }
 async function adminLogin(request, env) {
   const { password } = await request.json();
@@ -814,6 +855,10 @@ async function createProduct(request, env) {
 // POST /api/products/:id/notify-me [public]
 // Body: { email, size? } — size omis/null pour un produit sans déclinaison.
 async function subscribeStockAlert(request, env, params) {
+  const ip = getClientIp(request);
+  if (await isPublicActionRateLimited(env, ip, 'stock_alert', 15, 60)) {
+    return json({ error: 'Trop de demandes. Réessayez plus tard.' }, 429);
+  }
   const body = await request.json().catch(() => ({}));
   const email = normalizeEmail(body.email);
   if (!email || !email.includes('@')) return json({ error: 'Email invalide' }, 400);
@@ -826,6 +871,8 @@ async function subscribeStockAlert(request, env, params) {
   const sizes = product.sizes ? JSON.parse(product.sizes) : [];
   const size = body.size ? normalizeText(body.size, 12) : null;
   if (size && !sizes.includes(size)) return json({ error: 'Taille invalide pour ce produit' }, 400);
+
+  await recordPublicAction(env, ip, 'stock_alert');
 
   // NULL n'est pas déduplifié par une contrainte UNIQUE en SQLite (deux
   // NULL ne sont jamais "égaux") : on vérifie donc l'existence à la main
@@ -1333,6 +1380,10 @@ async function getWishlist(request, env) {
   return json({ data: results || [] }, 200, { 'Cache-Control': 'private, no-store' });
 }
 async function addWishlistItem(request, env) {
+  const ip = getClientIp(request);
+  if (await isPublicActionRateLimited(env, ip, 'wishlist_add', 30, 60)) {
+    return json({ error: 'Trop de demandes. Réessayez plus tard.' }, 429);
+  }
   const body = await request.json().catch(() => ({}));
   const email = normalizeEmail(body.email);
   if (!email || !email.includes('@')) return json({ error: 'Email invalide' }, 400);
@@ -1340,6 +1391,7 @@ async function addWishlistItem(request, env) {
   if (!Number.isInteger(productId)) return json({ error: 'Produit invalide' }, 400);
   const product = await env.DB.prepare('SELECT id FROM products WHERE id = ?').bind(productId).first();
   if (!product) return json({ error: 'Produit introuvable' }, 404);
+  await recordPublicAction(env, ip, 'wishlist_add');
   await env.DB.prepare(
     'INSERT INTO wishlist_items (member_email, product_id) VALUES (?, ?) ON CONFLICT(member_email, product_id) DO NOTHING'
   ).bind(email, productId).run();
@@ -1353,49 +1405,6 @@ async function removeWishlistItem(request, env, params) {
   if (!Number.isInteger(productId)) return json({ error: 'Produit invalide' }, 400);
   await env.DB.prepare('DELETE FROM wishlist_items WHERE member_email = ? AND product_id = ?').bind(email, productId).run();
   return json({ success: true });
-}
-
-// POST /api/member/email-transfer — appelé par l'espace membre juste après un
-// changement d'email de connexion réussi côté gestion (POST /api/member/
-// email/change), pour reporter l'historique boutique de l'adhérent sur sa
-// nouvelle adresse : sans ça, sa liste de souhaits et ses commandes passées
-// (donc l'accès à ses propres factures depuis "Mes commandes boutique")
-// deviendraient invisibles, cherchées par email comme le reste de l'espace
-// membre.
-//
-// Authentification asymétrique, à dessein : newEmail vient du jeton membre
-// vérifié (requireMember, jamais un champ fourni par l'appelant), oldEmail
-// est fourni tel quel dans le corps de la requête et n'est vérifié nulle
-// part. Un compte pourrait donc en théorie déclarer un oldEmail arbitraire
-// et récupérer la wishlist qui y était associée — mais jamais rediriger la
-// wishlist de quelqu'un d'autre ailleurs que vers son propre compte
-// authentifié. Compromis jugé acceptable : même tolérance déjà acceptée
-// pour la wishlist elle-même (ajout/lecture/suppression par email seul,
-// sans session, cf. getWishlist).
-//
-// wishlist_items : UPDATE OR IGNORE — une ligne qui existerait déjà sous la
-// nouvelle adresse pour le même produit est laissée de côté sous l'ancienne
-// plutôt que de faire échouer tout le batch (UNIQUE(member_email,
-// product_id) l'interdirait sinon).
-// orders.customer_email : migré pour l'affichage et l'accès aux factures
-// côté membre. payments.payer_email n'est PAS touché : c'est ce que
-// HelloAsso a rapporté au moment du paiement, pas une donnée de compte à
-// jour — le altérer romprait la piste d'audit du paiement.
-async function transferMemberEmail(request, env) {
-  const member = await requireMember(request, env);
-  if (!member) return json({ error: 'Non autorisé' }, 401);
-
-  const body = await request.json().catch(() => ({}));
-  const oldEmail = normalizeEmail(body.oldEmail);
-  const newEmail = String(member.email || '').trim().toLowerCase();
-  if (!oldEmail || !oldEmail.includes('@')) return json({ error: 'Email invalide' }, 400);
-  if (oldEmail === newEmail) return json({ success: true, moved: false });
-
-  await env.DB.batch([
-    env.DB.prepare('UPDATE OR IGNORE wishlist_items SET member_email = ? WHERE member_email = ?').bind(newEmail, oldEmail),
-    env.DB.prepare('UPDATE orders SET customer_email = ? WHERE LOWER(TRIM(customer_email)) = ?').bind(newEmail, oldEmail),
-  ]);
-  return json({ success: true, moved: true });
 }
 
 async function getMemberOrderInvoice(request, env, params) {
@@ -2337,6 +2346,26 @@ function buildEmailHtml(order, items) {
 // GET /images/:key — sert une image depuis R2
 // La clé peut contenir un slash (ex: products/1-123456.jpg)
 // On bypass le router pour cette route dans le fetch handler
+// ── Assets statiques (logo, favicon) ────────────────────────────────────
+// Cf. static-assets.js pour l'origine de ces base64 et le détail de ce que
+// ça remplace (logo dupliqué inline + absence totale de favicon).
+const STATIC_ASSET_ROUTES = {
+  '/logo.jpg':            { base64: LOGO_JPG_BASE64,         contentType: 'image/jpeg' },
+  '/favicon.ico':         { base64: FAVICON_ICO_BASE64,      contentType: 'image/x-icon' },
+  '/apple-touch-icon.png':{ base64: APPLE_TOUCH_ICON_BASE64, contentType: 'image/png' },
+  '/icon.png':            { base64: ICON_512_BASE64,         contentType: 'image/png' },
+};
+
+function serveStaticAsset({ base64, contentType }, headOnly = false) {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const headers = securityHeaders({
+    'Content-Type': contentType,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'Content-Length': String(bytes.length),
+  });
+  return new Response(headOnly ? null : bytes, { headers });
+}
+
 async function serveImage(request, env, _params, url) {
   if (!env.R2_BUCKET) return new Response('R2 non configuré', { status: 503 });
   // Extraire la clé complète depuis le pathname (tout après /images/)

@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS admin_login_attempts (
   success     INTEGER NOT NULL DEFAULT 0
 );
 
+-- Rate limiting générique des routes publiques sans Turnstile (notify-me, wishlist)
+CREATE TABLE IF NOT EXISTS public_action_attempts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip           TEXT NOT NULL,
+  action       TEXT NOT NULL,
+  attempted_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Idempotence pour synchronisation de stock inter-services
 CREATE TABLE IF NOT EXISTS inventory_sync_events (
   reference   TEXT PRIMARY KEY,

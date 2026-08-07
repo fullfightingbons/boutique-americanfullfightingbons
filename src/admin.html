@@ -4,6 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>AMERICAN FULL FIGHTING BONS EN CHABLAIS — Administration Boutique</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32"/>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet"/>
@@ -437,7 +439,8 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <select id="orderStatusFilter" class="form-control" style="width:auto;padding:6px 12px" onchange="loadOrders()">
             <option value="">Tous les statuts</option>
-            <option value="pending">En attente</option>
+            <option value="pending_payment">Paiement en attente</option>
+            <option value="payment_failed">Paiement échoué</option>
             <option value="confirmed">Confirmées</option>
             <option value="shipped">Expédiées</option>
             <option value="delivered">Livrées</option>

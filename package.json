@@ -23,6 +23,8 @@
     "db:migrate:stock-alerts:remote": "wrangler d1 execute boutique-americanfullfightingbons --remote --file=migration_stock_alerts.sql",
     "db:migrate:wishlist": "wrangler d1 execute boutique-americanfullfightingbons --file=migration_wishlist.sql",
     "db:migrate:wishlist:remote": "wrangler d1 execute boutique-americanfullfightingbons --remote --file=migration_wishlist.sql",
+    "db:migrate:rate-limit": "wrangler d1 execute boutique-americanfullfightingbons --file=migration_public_action_attempts.sql",
+    "db:migrate:rate-limit:remote": "wrangler d1 execute boutique-americanfullfightingbons --remote --file=migration_public_action_attempts.sql",
     "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {
