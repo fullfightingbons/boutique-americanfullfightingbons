@@ -58,6 +58,7 @@
     --radius-pill: 999px;
     --font-display: 'Sora', sans-serif;
     --font-body: 'Inter', sans-serif;
+    --container-max: clamp(1180px, 75vw, 1760px);
   }
 
   html { scroll-behavior: smooth; }
@@ -69,7 +70,7 @@
     padding: 1rem 1.4rem 0;
   }
   nav {
-    max-width: 1180px; margin: 0 auto;
+    max-width: var(--container-max); margin: 0 auto;
     display: flex; align-items: center; justify-content: space-between;
     gap: 20px; padding: .65rem .8rem .65rem 1rem; min-height: 76px;
     border: 1px solid rgba(255,255,255,.08);
@@ -134,7 +135,7 @@
   .nav-burger[aria-expanded="true"] span::after { top: 0; transform: rotate(-45deg); }
   .nav-mobile-panel {
     display: none;
-    max-width: 1180px; margin: .6rem auto 0;
+    max-width: var(--container-max); margin: .6rem auto 0;
     background: rgba(7,17,29,.96); border: 1px solid rgba(255,255,255,.1);
     border-radius: 20px; padding: .6rem; backdrop-filter: blur(16px);
     box-shadow: 0 14px 42px rgba(7,17,29,.35);
@@ -254,6 +255,7 @@
 
   /* PRODUITS */
   .products { background: var(--navy-2); }
+  .products-header,.filter-row,.catalog-toolbar,.products-meta,.product-grid{max-width:var(--container-max);margin-left:auto;margin-right:auto}
   .products-header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 2.5rem; flex-wrap: wrap; gap: 1rem; }
   .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 2.5rem; }
   .filter-btn {
@@ -313,7 +315,7 @@
     color: var(--gray);
     font-size: 13px;
   }
-  .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+  .product-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
   .product-card { background: var(--navy-3); border-radius: var(--radius); cursor: pointer; transition: background .2s; position: relative; overflow: hidden; }
   .product-card::after {
     content: '';
@@ -716,6 +718,7 @@
     background: var(--navy-3);
     border-top: 1px solid rgba(200,24,26,0.12);
   }
+  .listings-header,.listing-filters,.listing-grid{max-width:var(--container-max);margin-left:auto;margin-right:auto}
   .listings-header {
     display: flex; align-items: flex-start; justify-content: space-between;
     gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2.5rem;
@@ -745,7 +748,7 @@
 
   .listing-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 1.25rem;
   }
   .listing-loading { color: var(--gray); font-size: 14px; }
