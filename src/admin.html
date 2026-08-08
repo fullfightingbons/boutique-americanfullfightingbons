@@ -20,6 +20,7 @@
     --green: #22c55e; --yellow: #eab308;
     --font-display: 'Sora', sans-serif;
     --font-body: 'Inter', sans-serif;
+    --container-max: clamp(1400px, 75vw, 1700px);
   }
   html { scroll-behavior: smooth; }
   body { background: var(--dark); color: var(--light); font-family: var(--font-body); font-size: 15px; overflow-x: hidden; }
@@ -63,7 +64,7 @@
   }
   .admin-nav-btn:hover { color: var(--white); }
   .admin-nav-btn.active { color: var(--red); border-bottom-color: var(--red); }
-  .admin-content { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+  .admin-content { padding: 2rem; max-width: var(--container-max); margin: 0 auto; }
 
   /* ── TABS ── */
   .tab { display: none; }

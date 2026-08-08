@@ -58,6 +58,7 @@
     --radius-pill: 999px;
     --font-display: 'Sora', sans-serif;
     --font-body: 'Inter', sans-serif;
+    --container-max: clamp(1180px, 75vw, 1440px);
   }
 
   html { scroll-behavior: smooth; }
@@ -69,7 +70,7 @@
     padding: 1rem 1.4rem 0;
   }
   nav {
-    max-width: 1180px; margin: 0 auto;
+    max-width: var(--container-max); margin: 0 auto;
     display: flex; align-items: center; justify-content: space-between;
     gap: 20px; padding: .65rem .8rem .65rem 1rem; min-height: 76px;
     border: 1px solid rgba(255,255,255,.08);
@@ -134,7 +135,7 @@
   .nav-burger[aria-expanded="true"] span::after { top: 0; transform: rotate(-45deg); }
   .nav-mobile-panel {
     display: none;
-    max-width: 1180px; margin: .6rem auto 0;
+    max-width: var(--container-max); margin: .6rem auto 0;
     background: rgba(7,17,29,.96); border: 1px solid rgba(255,255,255,.1);
     border-radius: 20px; padding: .6rem; backdrop-filter: blur(16px);
     box-shadow: 0 14px 42px rgba(7,17,29,.35);
