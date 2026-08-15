@@ -570,6 +570,17 @@
   </div>
 </div>
 
+<!-- ── MODAL AJUSTEMENT STOCK ── -->
+<!-- Chaque taille a son propre champ + bouton ✓ : on peut mettre à jour une
+     seule taille à la fois, sans toucher aux autres (cf. saveSizeStock). -->
+<div id="stockModal" class="modal-overlay" onclick="if(event.target===this)closeStockModal()">
+  <div class="modal" style="max-width:440px">
+    <button class="modal-close" onclick="closeStockModal()">✕</button>
+    <div class="modal-title" id="stockModalTitle">📦 Stock</div>
+    <div id="stockModalBody"></div>
+  </div>
+</div>
+
 <script>
 // ════════════════════════════════════════════════════════════════
 //  État global
@@ -647,28 +658,29 @@ function statusText(s) {
   return String(statusBadge(s)).replace(/<[^>]+>/g,'');
 }
 
-function formatSizeStockSummary(rawValue) {
+// /api/admin/products renvoie les lignes D1 telles quelles : size_stocks y est
+// une colonne TEXT, donc une chaîne JSON (ex: '{"S":5,"M":10}'), PAS un objet
+// déjà parsé (contrairement aux endpoints publics getProduct/getProducts qui,
+// eux, le parsent avant renvoi). Tout code qui lit p.size_stocks depuis
+// allProducts doit passer par ce helper, sous peine de lire des clés
+// inexistantes sur une chaîne (ex: "abc"["S"] === undefined).
+function parseSizeStocks(rawValue) {
   try {
     const value = typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
-    if (!value || typeof value !== 'object') return '–';
-    const parts = Object.entries(value).map(([size, qty]) => {
-      const quantity = Number(qty) || 0;
-      return `${size}:${quantity}`;
-    });
-    return parts.length ? parts.join(' · ') : '–';
+    return value && typeof value === 'object' ? value : {};
   } catch {
-    return '–';
+    return {};
   }
 }
 
+function formatSizeStockSummary(rawValue) {
+  const value = parseSizeStocks(rawValue);
+  const parts = Object.entries(value).map(([size, qty]) => `${size}:${Number(qty) || 0}`);
+  return parts.length ? parts.join(' · ') : '–';
+}
+
 function hasCriticalSizeStock(rawValue) {
-  try {
-    const value = typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
-    if (!value || typeof value !== 'object') return false;
-    return Object.values(value).some(qty => (Number(qty) || 0) <= 3);
-  } catch {
-    return false;
-  }
+  return Object.values(parseSizeStocks(rawValue)).some(qty => (Number(qty) || 0) <= 3);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -807,7 +819,7 @@ async function loadDashboard() {
           <span class="low-stock-warn">⚠ ${p.stock} restant(s)</span>
           <div style="font-size:11px;color:var(--gray);margin-top:4px">${formatSizeStockSummary(p.size_stocks)}</div>
         </td>
-        <td><button class="btn btn-dark btn-sm" onclick="editProduct(${p.id})">Modifier</button></td>
+        <td><button class="btn btn-dark btn-sm" onclick="openStockModal(${p.id})">📦 Ajuster</button></td>
       </tr>`).join('');
   }
 
@@ -820,7 +832,7 @@ async function loadDashboard() {
         <td>${escapeHtml(capitalize(item.category))}</td>
         <td>${escapeHtml(item.size)}</td>
         <td>${item.stock <= 0 ? `<span class="low-stock-warn">Rupture</span>` : `<span class="low-stock-warn">⚠ ${item.stock}</span>`}</td>
-        <td><button class="btn btn-dark btn-sm" onclick="editProduct(${item.product_id})">Modifier</button></td>
+        <td><button class="btn btn-dark btn-sm" onclick="openStockModal(${item.product_id})">📦 Ajuster</button></td>
       </tr>
     `).join('');
   }
@@ -889,6 +901,7 @@ function renderProductsTable(products) {
       </td>
       <td>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-dark btn-sm" onclick="openStockModal(${p.id})">📦 Stock</button>
           <button class="btn btn-dark btn-sm" onclick="editProduct(${p.id})">✏ Modifier</button>
           <button class="btn btn-danger btn-sm" onclick='deleteProduct(${p.id}, ${JSON.stringify(String(p.name || ""))})'>🗑</button>
         </div>
@@ -990,8 +1003,8 @@ function editProduct(id) {
   document.getElementById('pBadge').value     = p.badge || '';
   document.getElementById('pDesc').value      = p.description || '';
   clearFormImg();
-  // Tailles
-  const sizeStocks = p.size_stocks || {};
+  // Tailles (p.size_stocks est une chaîne JSON brute ici, cf. parseSizeStocks)
+  const sizeStocks = parseSizeStocks(p.size_stocks);
 
 // Réinitialiser
  document.querySelectorAll('.size-stock-input').forEach(input => {
@@ -1097,6 +1110,83 @@ async function deleteProduct(id, name) {
   } else {
     showToast('Erreur lors de la suppression', 'error');
   }
+}
+
+// ── STOCK (ajustement rapide, taille par taille) ───────────────────
+// Chaque taille se sauvegarde indépendamment via PATCH /:id/stock, qui ne
+// touche que la taille concernée côté serveur — inutile de renvoyer les
+// autres tailles du produit pour en modifier une seule.
+function openStockModal(id) {
+  const p = allProducts.find(x => x.id === id);
+  if (!p) return;
+  renderStockModalBody(p);
+  document.getElementById('stockModal').classList.add('open');
+}
+function closeStockModal() {
+  document.getElementById('stockModal').classList.remove('open');
+}
+
+function renderStockModalBody(p) {
+  document.getElementById('stockModalTitle').textContent = `📦 Stock — ${p.name}`;
+  const sizes = (() => { try { return JSON.parse(p.sizes || '[]'); } catch(e) { return []; } })();
+  const sizeStocks = parseSizeStocks(p.size_stocks);
+  const body = document.getElementById('stockModalBody');
+
+  if (sizes.length) {
+    body.innerHTML = `
+      <div style="display:grid;gap:10px">
+        ${sizes.map(size => {
+          const qty = Number(sizeStocks[size] ?? 0);
+          return `
+          <div style="display:grid;grid-template-columns:56px 1fr auto;gap:8px;align-items:center">
+            <label style="font-weight:700;font-size:13px;color:${qty <= 3 ? 'var(--yellow)' : 'var(--light)'}">${escapeHtml(size)}</label>
+            <input type="number" min="0" class="form-control stock-modal-input" data-size="${escapeAttr(size)}"
+                   value="${qty}" onkeydown="if(event.key==='Enter'){event.preventDefault();saveSizeStock(${p.id}, ${JSON.stringify(size)});}"/>
+            <button class="btn btn-dark btn-sm" onclick='saveSizeStock(${p.id}, ${JSON.stringify(size)})'>✓</button>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="margin-top:1.25rem;font-size:12px;color:var(--gray)">Stock total : <strong style="color:var(--white)">${p.stock}</strong></div>
+    `;
+  } else {
+    body.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
+        <input type="number" min="0" class="form-control" id="stockModalFlatInput" value="${Number(p.stock || 0)}"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();saveFlatStock(${p.id});}"/>
+        <button class="btn btn-red btn-sm" onclick="saveFlatStock(${p.id})">✓ Enregistrer</button>
+      </div>
+    `;
+  }
+}
+
+async function saveSizeStock(id, size) {
+  const input = document.querySelector(`.stock-modal-input[data-size="${size}"]`);
+  if (!input) return;
+  const value = parseInt(input.value, 10);
+  if (Number.isNaN(value) || value < 0) { showToast('⚠ Stock invalide', 'error'); return; }
+
+  const { ok, data } = await api('PATCH', `/api/admin/products/${id}/stock`, { size, stock: value });
+  if (!ok) { showToast('Erreur : ' + (data.error || 'inconnue'), 'error'); return; }
+
+  showToast(`✓ Stock ${size} mis à jour`, 'success');
+  await loadProductsTable();
+  loadDashboard();
+  const refreshed = allProducts.find(x => x.id === id);
+  if (refreshed) renderStockModalBody(refreshed); // garde la modale ouverte pour enchaîner sur une autre taille
+}
+
+async function saveFlatStock(id) {
+  const input = document.getElementById('stockModalFlatInput');
+  const value = parseInt(input.value, 10);
+  if (Number.isNaN(value) || value < 0) { showToast('⚠ Stock invalide', 'error'); return; }
+
+  const { ok, data } = await api('PATCH', `/api/admin/products/${id}/stock`, { stock: value });
+  if (!ok) { showToast('Erreur : ' + (data.error || 'inconnue'), 'error'); return; }
+
+  showToast('✓ Stock mis à jour', 'success');
+  closeStockModal();
+  loadProductsTable();
+  loadDashboard();
 }
 
 // ── IMAGE ────────────────────────────────────────────────────────

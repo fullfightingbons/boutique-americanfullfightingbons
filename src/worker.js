@@ -62,6 +62,7 @@ const routes = [
   route('GET',   '/api/admin/products',      getAdminProducts, true),
   route('POST',  '/api/admin/products',      createProduct,    true),
   route('PATCH', '/api/admin/products/:id',  updateProduct,    true),
+  route('PATCH', '/api/admin/products/:id/stock', updateProductStock, true),
   route('DELETE','/api/admin/products/:id',  deleteProduct,    true),
   route('POST',  '/api/admin/products/:id/image', uploadImage, true),
 
@@ -1001,6 +1002,62 @@ async function updateProduct(request, env, params) {
   }
 
   return json({ success: true });
+}
+
+// PATCH /api/admin/products/:id/stock
+// Body: { size?: string, stock: number }
+// Ajuste le stock d'UNE SEULE taille (ou le stock global si le produit n'a
+// pas de tailles), sans toucher aux autres tailles. Contrairement à
+// updateProduct — qui remplace tout l'objet size_stocks reçu, donc écraserait
+// les autres tailles si on ne les renvoie pas — cette route relit le
+// size_stocks courant en base et ne modifie que la clé demandée. Elle permet
+// un ajustement rapide (ex: recomptage après une vente en boutique physique)
+// sans avoir à renvoyer l'intégralité des stocks des autres tailles.
+async function updateProductStock(request, env, params) {
+  const productId = Number(params.id);
+  if (!Number.isInteger(productId)) return json({ error: 'Produit invalide' }, 400);
+
+  const body = await request.json().catch(() => ({}));
+  const rawStock = Number(body.stock);
+  if (!Number.isFinite(rawStock)) return json({ error: 'Stock invalide' }, 400);
+  const newStock = Math.max(0, Math.round(rawStock));
+
+  const product = await env.DB.prepare(
+    'SELECT id, name, stock, sizes, size_stocks FROM products WHERE id = ?'
+  ).bind(productId).first();
+  if (!product) return json({ error: 'Produit introuvable' }, 404);
+
+  const size = body.size ? normalizeText(body.size, 12) : null;
+
+  if (size) {
+    const sizes = product.sizes ? JSON.parse(product.sizes) : [];
+    if (!sizes.includes(size)) return json({ error: 'Taille invalide pour ce produit' }, 400);
+
+    const sizeStocks = product.size_stocks ? JSON.parse(product.size_stocks) : {};
+    const wasEmpty = Number(sizeStocks[size] || 0) <= 0;
+    sizeStocks[size] = newStock;
+    const total = totalStockFromSizes(sizeStocks);
+
+    await env.DB.prepare(
+      "UPDATE products SET stock = ?, size_stocks = ?, updated_at = datetime('now') WHERE id = ?"
+    ).bind(total, JSON.stringify(sizeStocks), productId).run();
+
+    if (wasEmpty && newStock > 0) {
+      await notifyStockAlertSubscribers(env, productId, product.name, size);
+    }
+    return json({ success: true, size, stock: newStock, total_stock: total });
+  }
+
+  // Produit sans déclinaison de taille : on ajuste directement le stock brut.
+  const wasEmpty = Number(product.stock || 0) <= 0;
+  await env.DB.prepare(
+    "UPDATE products SET stock = ?, updated_at = datetime('now') WHERE id = ?"
+  ).bind(newStock, productId).run();
+
+  if (wasEmpty && newStock > 0) {
+    await notifyStockAlertSubscribers(env, productId, product.name, null);
+  }
+  return json({ success: true, stock: newStock });
 }
 
 // DELETE /api/admin/products/:id

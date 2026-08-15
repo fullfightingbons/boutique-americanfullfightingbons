@@ -176,7 +176,8 @@ Entrez le mot de passe défini à l'étape 4. Le token de session est mémorisé
 | `POST`    | `/api/admin/login` | Se connecter (retourne token) |
 | `POST`    | `/api/admin/logout` | Déconnexion |
 | `POST`    | `/api/admin/products` | Créer un produit |
-| `PATCH`   | `/api/admin/products/:id` | Modifier prix/stock/etc. |
+| `PATCH`   | `/api/admin/products/:id` | Modifier prix/stock/etc. (`size_stocks` envoyé = remplace tout l'objet) |
+| `PATCH`   | `/api/admin/products/:id/stock` | Ajuster le stock d'**une seule taille** (ou le stock global) sans toucher aux autres tailles |
 | `DELETE`  | `/api/admin/products/:id` | Supprimer un produit |
 | `POST`    | `/api/admin/products/:id/image` | Uploader une image (multipart ou JSON url) |
 | `PATCH`   | `/api/orders/:id` | Changer statut commande |
@@ -222,6 +223,22 @@ curl -X PATCH https://<worker-url>/api/admin/products/1 \
   -H "Content-Type: application/json" \
   -d '{"price": 54.99, "stock": 25}'
 ```
+
+### Ajuster le stock d'une seule taille (sans toucher aux autres)
+```bash
+curl -X PATCH https://<worker-url>/api/admin/products/1/stock \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"size": "M", "stock": 12}'
+# → { "success": true, "size": "M", "stock": 12, "total_stock": 27 }
+```
+
+> Pour un produit sans déclinaison de taille, omettez `size` :
+> `{"stock": 12}` → `{ "success": true, "stock": 12 }`.
+>
+> ⚠️ À l'inverse, `PATCH /api/admin/products/:id` avec un `size_stocks`
+> partiel **remplace tout l'objet** (les tailles absentes du payload
+> repassent à zéro) : utilisez cette route dédiée pour un ajustement ciblé.
 
 ### Uploader une image
 ```bash
