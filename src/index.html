@@ -857,7 +857,6 @@
   .listing-detail-cond { font-size: 13px; color: var(--gray); margin-bottom: .8rem; }
   .listing-detail-desc { font-size: 14px; color: var(--cream); line-height: 1.6; margin-bottom: 1.2rem; white-space: pre-wrap; }
   .listing-detail-contact { font-size: 14px; color: var(--gray); line-height: 1.8; }
-  .listing-contact-btn { display: inline-block; margin-top: .8rem; text-decoration: none; }
 
   @media (max-width: 640px) {
     .listings-section { padding: 3rem 1.25rem 2rem; }
@@ -1115,8 +1114,24 @@
       <div id="listingDetailCondition" class="listing-detail-cond"></div>
       <p id="listingDetailDesc" class="listing-detail-desc"></p>
       <div class="listing-detail-contact">
-        <strong>Vendeur :</strong> <span id="listingDetailSeller"></span><br/>
-        <a id="listingDetailEmailBtn" href="#" class="btn-primary listing-contact-btn">📧 Contacter le vendeur</a>
+        <strong>Vendeur :</strong> <span id="listingDetailSeller"></span>
+        <div id="listingContactForm" style="margin-top:1rem">
+          <div class="listing-form-grid">
+            <label class="listing-form-full">Votre prénom &amp; nom *
+              <input id="lc_name" type="text" maxlength="100" placeholder="Marie Dupont" />
+            </label>
+            <label class="listing-form-full">Votre email *
+              <input id="lc_email" type="email" placeholder="marie@exemple.fr" />
+            </label>
+            <label class="listing-form-full">Votre message *
+              <textarea id="lc_message" rows="4" maxlength="1500" placeholder="Bonjour, je suis intéressé(e) par votre annonce…"></textarea>
+            </label>
+          </div>
+          <div class="cf-turnstile" id="lc_turnstile" data-sitekey="0x4AAAAAADzBxQd7CZNUd0GV" data-callback="onListingContactTurnstileSuccess" data-expired-callback="onListingContactTurnstileExpired" data-error-callback="onListingContactTurnstileExpired" style="margin:.5rem 0 1rem"></div>
+          <div id="listingContactError" class="listing-form-error" hidden></div>
+          <button class="btn-primary listing-form-submit" id="listingContactSubmitBtn" onclick="submitListingContact()">📧 Envoyer au vendeur</button>
+        </div>
+        <div id="listingContactSuccess" class="listing-form-error" style="background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.35);color:#4ade80" hidden></div>
       </div>
     </div>
   </div>
@@ -2181,6 +2196,71 @@
   window.onListingTurnstileSuccess = function(token) { listingTurnstileToken = token; };
   window.onListingTurnstileExpired = function() { listingTurnstileToken = ''; };
 
+  var currentListingDetailId = null;
+  var listingContactTurnstileToken = '';
+  window.onListingContactTurnstileSuccess = function(token) { listingContactTurnstileToken = token; };
+  window.onListingContactTurnstileExpired = function() { listingContactTurnstileToken = ''; };
+
+  function resetListingContactForm() {
+    document.getElementById('listingContactForm').hidden = false;
+    document.getElementById('listingContactSuccess').hidden = true;
+    document.getElementById('listingContactError').hidden = true;
+    document.getElementById('lc_name').value = '';
+    document.getElementById('lc_email').value = '';
+    document.getElementById('lc_message').value = '';
+    var btn = document.getElementById('listingContactSubmitBtn');
+    btn.disabled = false;
+    btn.textContent = '📧 Envoyer au vendeur';
+    listingContactTurnstileToken = '';
+    if (window.turnstile) window.turnstile.reset('#lc_turnstile');
+  }
+
+  function showListingContactErr(msg) {
+    document.getElementById('listingContactSuccess').hidden = true;
+    var el = document.getElementById('listingContactError');
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
+  window.submitListingContact = function() {
+    if (!currentListingDetailId) return;
+    if (!listingContactTurnstileToken) { showListingContactErr('Merci de valider la vérification anti-robot.'); return; }
+
+    var name    = (document.getElementById('lc_name').value || '').trim();
+    var email   = (document.getElementById('lc_email').value || '').trim();
+    var message = (document.getElementById('lc_message').value || '').trim();
+
+    if (!name)  { showListingContactErr('Votre nom est obligatoire.'); return; }
+    if (!email || email.indexOf('@') === -1) { showListingContactErr('Email invalide.'); return; }
+    if (!message) { showListingContactErr('Un message est obligatoire.'); return; }
+
+    document.getElementById('listingContactError').hidden = true;
+    var btn = document.getElementById('listingContactSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Envoi…';
+
+    fetch('/api/listings/' + currentListingDetailId + '/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ buyer_name: name, buyer_email: email, message: message, turnstile_token: listingContactTurnstileToken }),
+    })
+      .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+      .then(function(res) {
+        if (!res.ok) throw new Error((res.data && res.data.error) || 'Erreur serveur');
+        document.getElementById('listingContactForm').hidden = true;
+        var successEl = document.getElementById('listingContactSuccess');
+        successEl.textContent = '✓ Message envoyé — le vendeur peut désormais vous répondre directement à ' + email + '.';
+        successEl.hidden = false;
+      })
+      .catch(function(err) {
+        showListingContactErr(err.message || 'Erreur lors de l\'envoi.');
+        btn.disabled = false;
+        btn.textContent = '📧 Envoyer au vendeur';
+        listingContactTurnstileToken = '';
+        if (window.turnstile) window.turnstile.reset('#lc_turnstile');
+      });
+  };
+
   window.submitListing = function() {
     var btn = document.getElementById('listingSubmitBtn');
     var errEl = document.getElementById('listingFormError');
@@ -2289,12 +2369,11 @@
     document.getElementById('listingDetailCondition').textContent = CONDITION_LABELS[l.condition] || l.condition;
     document.getElementById('listingDetailDesc').textContent   = l.description || '';
     document.getElementById('listingDetailSeller').textContent = l.contact_name;
-    // L'email est volontairement absent de la réponse publique GET /api/listings/:id
-    // On propose de contacter via le formulaire contact du club
-    var emailBtn = document.getElementById('listingDetailEmailBtn');
-    emailBtn.href = 'mailto:fullfightingbons@gmail.com?subject=' +
-      encodeURIComponent('Annonce #' + l.id + ' – ' + l.title) +
-      '&body=' + encodeURIComponent('Bonjour,\n\nJe suis intéressé(e) par l\'annonce #' + l.id + ' : ' + l.title + ' (' + Number(l.price).toFixed(2) + ' €).\n\nMerci de me mettre en contact avec le vendeur.\n\nCordialement.');
+    // L'email du vendeur est volontairement absent de la réponse publique
+    // GET /api/listings/:id ; le formulaire ci-dessous poste vers
+    // /api/listings/:id/contact qui relaie côté serveur (reply-to = acheteur).
+    currentListingDetailId = id;
+    resetListingContactForm();
     document.getElementById('listingDetailModal').classList.add('open');
     document.body.style.overflow = 'hidden';
   };

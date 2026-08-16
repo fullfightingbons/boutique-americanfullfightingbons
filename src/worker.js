@@ -13,6 +13,7 @@ import ADMIN_HTML from './admin.html';
 import MENTIONS_HTML from './mentions-legales.html';
 import CGV_HTML from './cgv.html';
 import { buildHelloAssoPaymentState } from './helloasso-helpers.mjs';
+import { buildRevenueBreakdown } from './stats-helpers.mjs';
 import { buildDocumentPdfBytes } from './document-template.js';
 import { bytesToBase64 } from './pdf-engine.js';
 import { LOGO_JPG_BASE64, FAVICON_ICO_BASE64, APPLE_TOUCH_ICON_BASE64, ICON_512_BASE64 } from './static-assets.js';
@@ -96,6 +97,7 @@ const routes = [
   route('GET',   '/api/listings/:id',          getListing),
   route('POST',  '/api/listings',              createListing),       // soumission publique
   route('POST',  '/api/listings/:id/image',    uploadListingImage),  // upload image annonce
+  route('POST',  '/api/listings/:id/contact',  contactListingSeller),// relais acheteur → vendeur
   route('GET',   '/api/admin/listings',        getAdminListings,     true),
   route('PATCH', '/api/admin/listings/:id',    updateListingStatus,  true),
   route('DELETE','/api/admin/listings/:id',    deleteListing,        true),
@@ -1547,12 +1549,27 @@ async function getAdminOrders(_req, env, _params, url) {
 }
 
 async function getStats(_req, env) {
-  const [products, orders, revenue, lowStock, allProducts] = await Promise.all([
+  const [products, orders, revenue, lowStock, allProducts, revenueRows] = await Promise.all([
     env.DB.prepare('SELECT COUNT(*) as count FROM products').first(),
     env.DB.prepare('SELECT COUNT(*) as count FROM orders').first(),
     env.DB.prepare("SELECT COALESCE(SUM(total),0) as total FROM orders WHERE status IN ('confirmed', 'shipped', 'delivered')").first(),
     env.DB.prepare('SELECT * FROM products WHERE stock <= 3 ORDER BY stock').all(),
     env.DB.prepare('SELECT id, name, category, size_stocks FROM products WHERE size_stocks IS NOT NULL').all(),
+    // Une ligne par order_item : la ventilation (par saison, par catégorie,
+    // par les deux) est calculée ensuite en JS par buildRevenueBreakdown,
+    // pour rester testable sans D1 — cf. stats-helpers.mjs. LEFT JOIN (pas
+    // INNER) + COALESCE : un produit supprimé depuis ne doit pas faire
+    // disparaître son CA passé de la ventilation, sous peine de ne plus
+    // sommer au même total que total_revenue ci-dessus.
+    env.DB.prepare(`
+      SELECT o.created_at as created_at,
+             COALESCE(p.category, 'autre') as category,
+             oi.quantity * oi.unit_price as amount
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      LEFT JOIN products p ON p.id = oi.product_id
+      WHERE o.status IN ('confirmed', 'shipped', 'delivered')
+    `).all(),
   ]);
   const lowSizeStock = [];
   for (const product of allProducts.results) {
@@ -1571,10 +1588,14 @@ async function getStats(_req, env) {
       }
     }
   }
+  const revenueBreakdown = buildRevenueBreakdown(revenueRows.results);
   return json({
     total_products: products.count,
     total_orders:   orders.count,
     total_revenue:  revenue.total,
+    revenue_by_season:          revenueBreakdown.by_season,
+    revenue_by_category:        revenueBreakdown.by_category,
+    revenue_by_season_category: revenueBreakdown.by_season_category,
     low_stock:      lowStock.results,
     low_size_stock: lowSizeStock,
   });
@@ -2028,6 +2049,59 @@ async function sendListingConfirmationToSeller(env, listing) {
   }
 
   return { attempted: true, sent: true, recipient: listing.contact_email };
+}
+
+// Relaie le message d'un acheteur vers l'email réel du vendeur, avec
+// reply-to = acheteur (cf. contactListingSeller). Contrairement aux
+// notifications ci-dessus, appelée sans filet (Promise.allSettled) : un
+// échec ici doit remonter, il n'y a rien d'autre à recycler.
+async function sendListingContactEmail(env, listing, contact) {
+  if (!env.BREVO_API_KEY) {
+    throw new Error('BREVO_API_KEY manquant : impossible de relayer le message acheteur');
+  }
+
+  const priceLabel = Number(listing.price).toFixed(2).replace('.', ',') + ' €';
+
+  const emailPayload = {
+    sender: {
+      name:  env.BREVO_FROM_NAME  || 'AFFB Boutique',
+      email: env.BREVO_FROM_EMAIL || MAIL_SENDER_EMAIL,
+    },
+    to: [{ email: listing.contact_email, name: listing.contact_name }],
+    replyTo: { email: contact.buyerEmail, name: contact.buyerName },
+    subject: `Un acheteur intéressé par votre annonce « ${listing.title} »`,
+    htmlContent: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#222">
+        <h2 style="color:#C8181A">Un message pour votre annonce</h2>
+        <p>Bonjour ${escapeHtml(listing.contact_name)},</p>
+        <p><strong>${escapeHtml(contact.buyerName)}</strong> (${escapeHtml(contact.buyerEmail)}) vous a
+           envoyé ce message au sujet de votre annonce <strong>${escapeHtml(listing.title)}</strong>
+           (${priceLabel}) sur la boutique AFFB :</p>
+        <blockquote style="margin:16px 0;padding:12px 16px;border-left:3px solid #C8181A;background:#f7f7f7;white-space:pre-wrap">${escapeHtml(contact.message)}</blockquote>
+        <p>Vous pouvez répondre directement à cet email : votre réponse ira à
+           ${escapeHtml(contact.buyerEmail)}, pas au club.</p>
+        <p style="margin-top:24px">
+          Pour toute question : <a href="mailto:${CLUB_CONTACT_EMAIL}" style="color:#C8181A">${CLUB_CONTACT_EMAIL}</a>
+        </p>
+      </div>
+    `,
+  };
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key':      env.BREVO_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(emailPayload),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brevo error ${res.status}: ${err}`);
+  }
+
+  return { sent: true, recipient: listing.contact_email };
 }
 
 // ── Synchronisation des ventes vers la comptabilité (worker gestion) ──────
@@ -2638,6 +2712,59 @@ async function uploadListingImage(request, env, params) {
   await env.DB.prepare("UPDATE listings SET image_url = ?, updated_at = datetime('now') WHERE id = ?")
     .bind(dataUrl, params.id).run();
   return json({ success: true, image_url: dataUrl });
+}
+
+// POST /api/listings/:id/contact [public]
+// Body: { buyer_name, buyer_email, message, turnstile_token }
+// Relaie le message de l'acheteur par email vers l'adresse réelle du
+// vendeur (contact_email, jamais exposée au client — cf. getListing) avec
+// reply-to = acheteur : le vendeur peut répondre directement depuis son
+// client mail, sans que son adresse ne transite par le navigateur de
+// l'acheteur ni que le club ait à faire la mise en relation à la main.
+// Comme il n'y a pas d'autre effet de bord que l'envoi (rien n'est
+// persisté), un échec Brevo doit remonter une erreur — contrairement à
+// createListing où les notifications sont best-effort après coup.
+async function contactListingSeller(request, env, params) {
+  const ip = getClientIp(request);
+  if (await isPublicActionRateLimited(env, ip, 'listing_contact', 8, 60)) {
+    return json({ error: 'Trop de demandes. Réessayez plus tard.' }, 429);
+  }
+
+  const body = await request.json().catch(() => ({}));
+  if (!(await verifyTurnstile(body.turnstile_token, env, ip))) {
+    return json({ error: 'Vérification anti-robot invalide ou expirée, merci de réessayer.' }, 403);
+  }
+
+  const listingId = Number(params.id);
+  if (!Number.isInteger(listingId)) return json({ error: 'Annonce invalide' }, 400);
+
+  const listing = await env.DB.prepare(
+    'SELECT id, title, price, contact_name, contact_email, status FROM listings WHERE id = ?'
+  ).bind(listingId).first();
+  if (!listing || listing.status !== 'active') {
+    return json({ error: 'Cette annonce n\'est plus disponible' }, 404);
+  }
+
+  const buyerName  = normalizeText(body.buyer_name, 100);
+  const buyerEmail = normalizeEmail(body.buyer_email);
+  const message    = normalizeMultilineText(body.message, 1500);
+
+  if (!buyerName)  return json({ error: 'Votre nom est obligatoire' }, 400);
+  if (!buyerEmail || !buyerEmail.includes('@')) return json({ error: 'Email invalide' }, 400);
+  if (!message)    return json({ error: 'Un message est obligatoire' }, 400);
+
+  // Comptabilisé même en cas d'échec d'envoi ci-dessous : sinon un Brevo en
+  // erreur redonnerait des tentatives illimitées à un abus.
+  await recordPublicAction(env, ip, 'listing_contact');
+
+  try {
+    await sendListingContactEmail(env, listing, { buyerName, buyerEmail, message });
+  } catch (err) {
+    console.error('Brevo listing contact relay failed:', err);
+    return json({ error: 'Impossible d\'envoyer le message pour le moment. Réessayez plus tard.' }, 502);
+  }
+
+  return json({ success: true });
 }
 
 // GET /api/admin/listings — toutes les annonces (admin)

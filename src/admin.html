@@ -274,6 +274,26 @@
       <div id="statsContainer" class="loader">Chargement…</div>
 
       <div style="margin-top:2rem">
+        <div class="admin-section-title">Chiffre d'affaires par saison</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Saison</th><th>CA</th></tr></thead>
+            <tbody id="revenueBySeasonTable"><tr><td colspan="2" class="loader">Chargement…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="margin-top:2rem">
+        <div class="admin-section-title">Chiffre d'affaires par catégorie</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Catégorie</th><th>CA</th></tr></thead>
+            <tbody id="revenueByCategoryTable"><tr><td colspan="2" class="loader">Chargement…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="margin-top:2rem">
         <div class="admin-section-title">Stock faible (&le; 3 unités)</div>
         <div class="table-wrap">
           <table>
@@ -804,6 +824,18 @@ async function loadDashboard() {
         <div class="stat-l">Tailles critiques</div>
       </div>
     </div>`;
+
+  const seasonTbody = document.getElementById('revenueBySeasonTable');
+  const bySeason = data.revenue_by_season || [];
+  seasonTbody.innerHTML = bySeason.length
+    ? bySeason.map(r => `<tr><td>${escapeHtml(r.saison)}</td><td>${fmt(r.total)}</td></tr>`).join('')
+    : '<tr><td colspan="2" style="color:var(--gray);padding:1rem">Aucune vente pour l\'instant</td></tr>';
+
+  const categoryTbody = document.getElementById('revenueByCategoryTable');
+  const byCategory = data.revenue_by_category || [];
+  categoryTbody.innerHTML = byCategory.length
+    ? byCategory.map(r => `<tr><td>${escapeHtml(capitalize(r.category))}</td><td>${fmt(r.total)}</td></tr>`).join('')
+    : '<tr><td colspan="2" style="color:var(--gray);padding:1rem">Aucune vente pour l\'instant</td></tr>';
 
   const tbody = document.getElementById('lowStockTable');
   const sizeTbody = document.getElementById('lowSizeStockTable');
