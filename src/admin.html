@@ -823,6 +823,10 @@ async function loadDashboard() {
         <div class="stat-n" style="color:var(--yellow)">${(data.low_size_stock || []).length}</div>
         <div class="stat-l">Tailles critiques</div>
       </div>
+      <div class="stat-card" style="border-color:${data.gestion_sync_pending ? 'var(--yellow)' : 'var(--green)'}">
+        <div class="stat-n" style="color:${data.gestion_sync_pending ? 'var(--yellow)' : 'var(--green)'}">${data.gestion_sync_pending || 0}</div>
+        <div class="stat-l">Sync gestion en attente</div>
+      </div>
     </div>`;
 
   const seasonTbody = document.getElementById('revenueBySeasonTable');

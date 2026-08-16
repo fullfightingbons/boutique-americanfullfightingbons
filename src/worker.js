@@ -1420,15 +1420,24 @@ async function getMemberOrders(request, env) {
 }
 
 // ── Liste de souhaits (espace membre) ─────────────────────────
-// Par email, sans session — même modèle que subscribeStockAlert. La
-// boutique publique n'a pas de connexion membre pour déclencher l'ajout ;
-// plutôt qu'un mélange (ajout par email, lecture par session), les 3
-// endpoints restent cohérents. Donnée à faible enjeu (une liste d'envies,
-// pas une donnée financière ou personnelle) : ce choix est le même
-// compromis déjà fait pour l'alerte de disponibilité.
+// Les endpoints acceptent désormais le jeton membre signé quand il est
+// disponible (espace membre), tout en conservant le mode email explicite pour
+// la boutique publique qui n'a pas de connexion membre.
+async function resolveWishlistEmail(request, env, fallbackEmail) {
+  const authHeader = request.headers.get('Authorization') || '';
+  if (/^Bearer\s+\S+/i.test(authHeader)) {
+    const member = await requireMember(request, env);
+    if (!member) return { error: json({ error: 'Non autorisé' }, 401) };
+    return { email: normalizeEmail(member.email), authenticated: true };
+  }
+  return { email: normalizeEmail(fallbackEmail || ''), authenticated: false };
+}
+
 async function getWishlist(request, env) {
   const url = new URL(request.url);
-  const email = normalizeEmail(url.searchParams.get('email') || '');
+  const resolved = await resolveWishlistEmail(request, env, url.searchParams.get('email') || '');
+  if (resolved.error) return resolved.error;
+  const email = resolved.email;
   if (!email || !email.includes('@')) return json({ error: 'Email invalide' }, 400);
   const { results } = await env.DB.prepare(
     `SELECT w.product_id, w.created_at, p.name, p.price, p.image_url, p.stock, p.size_stocks, p.category
@@ -1444,7 +1453,9 @@ async function addWishlistItem(request, env) {
     return json({ error: 'Trop de demandes. Réessayez plus tard.' }, 429);
   }
   const body = await request.json().catch(() => ({}));
-  const email = normalizeEmail(body.email);
+  const resolved = await resolveWishlistEmail(request, env, body.email);
+  if (resolved.error) return resolved.error;
+  const email = resolved.email;
   if (!email || !email.includes('@')) return json({ error: 'Email invalide' }, 400);
   const productId = Number(body.product_id);
   if (!Number.isInteger(productId)) return json({ error: 'Produit invalide' }, 400);
@@ -1458,7 +1469,9 @@ async function addWishlistItem(request, env) {
 }
 async function removeWishlistItem(request, env, params) {
   const url = new URL(request.url);
-  const email = normalizeEmail(url.searchParams.get('email') || '');
+  const resolved = await resolveWishlistEmail(request, env, url.searchParams.get('email') || '');
+  if (resolved.error) return resolved.error;
+  const email = resolved.email;
   if (!email || !email.includes('@')) return json({ error: 'Email invalide' }, 400);
   const productId = Number(params.productId);
   if (!Number.isInteger(productId)) return json({ error: 'Produit invalide' }, 400);
@@ -1549,7 +1562,7 @@ async function getAdminOrders(_req, env, _params, url) {
 }
 
 async function getStats(_req, env) {
-  const [products, orders, revenue, lowStock, allProducts, revenueRows] = await Promise.all([
+  const [products, orders, revenue, lowStock, allProducts, revenueRows, gestionSyncPending] = await Promise.all([
     env.DB.prepare('SELECT COUNT(*) as count FROM products').first(),
     env.DB.prepare('SELECT COUNT(*) as count FROM orders').first(),
     env.DB.prepare("SELECT COALESCE(SUM(total),0) as total FROM orders WHERE status IN ('confirmed', 'shipped', 'delivered')").first(),
@@ -1570,6 +1583,12 @@ async function getStats(_req, env) {
       LEFT JOIN products p ON p.id = oi.product_id
       WHERE o.status IN ('confirmed', 'shipped', 'delivered')
     `).all(),
+    env.DB.prepare(`
+      SELECT COUNT(*) as count, MIN(created_at) as oldest_created_at
+      FROM orders
+      WHERE status IN ('confirmed', 'shipped', 'delivered')
+        AND gestion_synced_at IS NULL
+    `).first(),
   ]);
   const lowSizeStock = [];
   for (const product of allProducts.results) {
@@ -1596,6 +1615,8 @@ async function getStats(_req, env) {
     revenue_by_season:          revenueBreakdown.by_season,
     revenue_by_category:        revenueBreakdown.by_category,
     revenue_by_season_category: revenueBreakdown.by_season_category,
+    gestion_sync_pending: Number(gestionSyncPending?.count || 0),
+    gestion_sync_oldest_created_at: gestionSyncPending?.oldest_created_at || null,
     low_stock:      lowStock.results,
     low_size_stock: lowSizeStock,
   });
