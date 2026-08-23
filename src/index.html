@@ -2303,16 +2303,25 @@
         var fd = new FormData();
         fd.append('image', imgFile);
         return fetch('/api/listings/' + listingId + '/image', { method: 'POST', body: fd })
-          .then(function() { return data; });
+          .then(function(r) { return r.json().then(function(imgData) { return { imageOk: r.ok, imageError: imgData && imgData.error }; }); })
+          .catch(function() { return { imageOk: false, imageError: null }; });
       }
-      return data;
+      return { imageOk: true };
     })
-    .then(function() {
+    .then(function(imgResult) {
       btn.disabled = false;
       btn.textContent = 'Envoyer mon annonce';
       closeListingForm();
       resetListingForm();
-      showListingSuccess();
+      // La création de l'annonce a réussi dans tous les cas à ce stade (sinon
+      // on serait passé par le .catch ci-dessous) : on ne bloque jamais ce
+      // succès sur l'échec de l'upload photo, pour ne pas pousser à un
+      // second envoi qui dupliquerait l'annonce déjà créée en base.
+      if (imgResult && imgResult.imageOk === false) {
+        showListingSuccess('✓ Annonce envoyée — en attente de validation. ⚠️ La photo n\'a pas pu être ajoutée (' + (imgResult.imageError || 'format ou taille invalide') + '), vous pourrez la renvoyer en répondant au mail de confirmation.');
+      } else {
+        showListingSuccess();
+      }
     })
     .catch(function(err) {
       btn.disabled = false;
@@ -2331,14 +2340,14 @@
     el.hidden = false;
   }
 
-  function showListingSuccess() {
+  function showListingSuccess(message) {
     // Réutiliser le toast existant
     var t = document.getElementById('toast');
     if (t) {
-      t.textContent = '✓ Annonce envoyée — en attente de validation par le club.';
+      t.textContent = message || '✓ Annonce envoyée — en attente de validation par le club.';
       t.style.opacity = '1';
       t.style.transform = 'translateY(0)';
-      setTimeout(function() { t.style.opacity=''; t.style.transform=''; }, 5000);
+      setTimeout(function() { t.style.opacity=''; t.style.transform=''; }, message ? 8000 : 5000);
     }
   }
 

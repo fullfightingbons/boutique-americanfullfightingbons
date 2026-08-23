@@ -2684,6 +2684,20 @@ async function createListing(request, env) {
 async function uploadListingImage(request, env, params) {
   const listing = await env.DB.prepare('SELECT id, status FROM listings WHERE id = ?').bind(params.id).first();
   if (!listing) return json({ error: 'Annonce introuvable' }, 404);
+  // Les ID d'annonces sont des entiers séquentiels devinables et cette route
+  // n'a pas de jeton Turnstile (le formulaire l'appelle juste après la
+  // création, sans repasser par la vérification anti-robot) : on la limite
+  // aux annonces encore en attente pour empêcher quiconque de réécrire la
+  // photo d'une annonce déjà modérée/publiée, et on limite le débit par IP
+  // comme les autres routes publiques non protégées par Turnstile.
+  if (listing.status !== 'pending') {
+    return json({ error: 'Cette annonce ne peut plus recevoir de nouvelle photo.' }, 403);
+  }
+  const ip = getClientIp(request);
+  if (await isPublicActionRateLimited(env, ip, 'listing_image', 10, 60)) {
+    return json({ error: 'Trop de tentatives, réessayez plus tard.' }, 429);
+  }
+  await recordPublicAction(env, ip, 'listing_image');
 
   const contentType = request.headers.get('Content-Type') || '';
   if (!contentType.includes('multipart/form-data')) {
