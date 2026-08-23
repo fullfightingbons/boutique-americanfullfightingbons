@@ -2304,7 +2304,7 @@
         fd.append('image', imgFile);
         return fetch('/api/listings/' + listingId + '/image', { method: 'POST', body: fd })
           .then(function(r) { return r.json().then(function(imgData) { return { imageOk: r.ok, imageError: imgData && imgData.error }; }); })
-          .catch(function() { return { imageOk: false, imageError: null }; });
+          .catch(function() { return { imageOk: false, imageError: 'problème réseau, réessayez plus tard' }; });
       }
       return { imageOk: true };
     })
