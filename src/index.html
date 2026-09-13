@@ -1137,6 +1137,23 @@
   </div>
 </div>
 
+<!-- Modal gestion vendeur : ouverte automatiquement via le lien reçu par
+     email (confirmation de dépôt ou rappel mensuel) pour marquer une
+     annonce comme vendue, sans compte ni mot de passe. -->
+<div id="listingManageModal" class="listing-modal-overlay" onclick="if(event.target===this)closeListingManage()">
+  <div class="listing-modal" style="max-width:420px">
+    <button class="listing-modal-close" onclick="closeListingManage()">✕</button>
+    <h3 class="listing-modal-title">Votre annonce</h3>
+    <p class="listing-modal-intro" id="listingManageIntro">Vérification du lien…</p>
+    <div id="listingManageError" class="listing-form-error" hidden></div>
+    <div id="listingManageSuccess" class="listing-form-error" style="background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.35);color:#4ade80" hidden></div>
+    <div id="listingManageActions" style="display:flex;gap:10px;margin-top:1rem" hidden>
+      <button class="btn-primary" id="listingManageConfirmBtn" onclick="confirmListingSold()" style="flex:1;justify-content:center;text-align:center">✓ Oui, elle est vendue</button>
+      <button class="btn-outline" onclick="closeListingManage()" style="flex:1;justify-content:center;text-align:center;margin-left:0">Pas encore</button>
+    </div>
+  </div>
+</div>
+
 <section class="reassurance" id="infos">
   <div class="reassurance-grid">
     <div class="reassurance-card">
@@ -2201,6 +2218,11 @@
   window.onListingContactTurnstileSuccess = function(token) { listingContactTurnstileToken = token; };
   window.onListingContactTurnstileExpired = function() { listingContactTurnstileToken = ''; };
 
+  // Lien "annonce vendue" reçu par email (confirmation de dépôt ou rappel
+  // mensuel) : ?listing_action=vendu&listing_id=123&listing_token=...
+  var currentManageListingId = null;
+  var currentManageToken = null;
+
   function resetListingContactForm() {
     document.getElementById('listingContactForm').hidden = false;
     document.getElementById('listingContactSuccess').hidden = true;
@@ -2394,8 +2416,101 @@
   function escapeHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function escapeHtmlAttr(s) { return String(s||'').replace(/"/g,'&quot;'); }
 
+  // ── Gestion vendeur : marquer une annonce comme vendue depuis le lien
+  //    reçu par email (confirmation de dépôt ou rappel mensuel) ──────────
+  function showListingManageError(msg) {
+    document.getElementById('listingManageActions').hidden = true;
+    var el = document.getElementById('listingManageError');
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
+  function handleListingManageReturn() {
+    var url   = new URL(window.location.href);
+    var action = url.searchParams.get('listing_action');
+    var id     = url.searchParams.get('listing_id');
+    var token  = url.searchParams.get('listing_token');
+
+    // Toujours nettoyer l'URL, même si le lien est incomplet ou invalide,
+    // pour ne pas laisser le jeton secret trainer dans l'historique/adresse.
+    if (action || id || token) {
+      url.searchParams.delete('listing_action');
+      url.searchParams.delete('listing_id');
+      url.searchParams.delete('listing_token');
+      window.history.replaceState({}, '', url.pathname + (url.search || '') + url.hash);
+    }
+    if (action !== 'vendu' || !id || !token) return;
+
+    currentManageListingId = id;
+    currentManageToken = token;
+
+    document.getElementById('listingManageError').hidden = true;
+    document.getElementById('listingManageSuccess').hidden = true;
+    document.getElementById('listingManageActions').hidden = true;
+    document.getElementById('listingManageIntro').hidden = false;
+    document.getElementById('listingManageIntro').textContent = 'Vérification du lien…';
+    document.getElementById('listingManageModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+
+    fetch('/api/listings/' + encodeURIComponent(id) + '/manage?token=' + encodeURIComponent(token))
+      .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+      .then(function(res) {
+        if (!res.ok) throw new Error((res.data && res.data.error) || 'Lien invalide ou expiré.');
+        var l = res.data;
+        if (l.status === 'sold') {
+          document.getElementById('listingManageIntro').textContent =
+            'Cette annonce « ' + l.title + ' » est déjà marquée comme vendue. Merci !';
+        } else {
+          document.getElementById('listingManageIntro').textContent =
+            'Confirmez-vous que « ' + l.title + ' » (' + Number(l.price).toFixed(2) + ' €) a bien été vendue ? ' +
+            'Elle sera aussitôt retirée du site.';
+          document.getElementById('listingManageActions').hidden = false;
+        }
+      })
+      .catch(function(err) {
+        showListingManageError(err.message || 'Lien invalide ou expiré.');
+        document.getElementById('listingManageIntro').hidden = true;
+      });
+  }
+
+  window.closeListingManage = function() {
+    document.getElementById('listingManageModal').classList.remove('open');
+    document.body.style.overflow = '';
+    currentManageListingId = null;
+    currentManageToken = null;
+  };
+
+  window.confirmListingSold = function() {
+    if (!currentManageListingId || !currentManageToken) return;
+    var btn = document.getElementById('listingManageConfirmBtn');
+    btn.disabled = true;
+    btn.textContent = 'Confirmation…';
+
+    fetch('/api/listings/' + encodeURIComponent(currentManageListingId) + '/mark-sold', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: currentManageToken }),
+    })
+      .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+      .then(function(res) {
+        if (!res.ok) throw new Error((res.data && res.data.error) || 'Erreur serveur');
+        document.getElementById('listingManageActions').hidden = true;
+        document.getElementById('listingManageIntro').hidden = true;
+        var successEl = document.getElementById('listingManageSuccess');
+        successEl.textContent = '✓ Merci ! Votre annonce a été retirée du site.';
+        successEl.hidden = false;
+        fetchListings(currentListingCat); // rafraîchir la grille si elle est affichée
+      })
+      .catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = '✓ Oui, elle est vendue';
+        showListingManageError(err.message || 'Erreur lors de la confirmation.');
+      });
+  };
+
   // Charger les annonces au démarrage
   fetchListings('tous');
+  handleListingManageReturn();
 })();
 </script>
 <!-- Données structurées (schema.org) : rempli dynamiquement par

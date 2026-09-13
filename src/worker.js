@@ -20,6 +20,7 @@ import { LOGO_JPG_BASE64, FAVICON_ICO_BASE64, APPLE_TOUCH_ICON_BASE64, ICON_512_
 
 const CLUB_CONTACT_EMAIL = 'fullfightingbons@gmail.com';
 const MAIL_SENDER_EMAIL = 'contact@americanfullfightingbons.fr';
+const SHOP_BASE_URL = 'https://boutique.americanfullfightingbons.fr/';
 
 // ── Variables d'environnement attendues (dashboard Cloudflare) ──
 // Mot de passe admin : PAS de variable ADMIN_PASSWORD/ADMIN_PASSWORD_HASH en
@@ -98,6 +99,8 @@ const routes = [
   route('POST',  '/api/listings',              createListing),       // soumission publique
   route('POST',  '/api/listings/:id/image',    uploadListingImage),  // upload image annonce
   route('POST',  '/api/listings/:id/contact',  contactListingSeller),// relais acheteur → vendeur
+  route('GET',   '/api/listings/:id/manage',   getListingManageInfo),   // vérifie le lien vendeur (token) et renvoie un résumé sûr
+  route('POST',  '/api/listings/:id/mark-sold',markListingSoldBySeller),// le vendeur marque lui-même son annonce comme vendue (lien secret, sans compte)
   route('GET',   '/api/admin/listings',        getAdminListings,     true),
   route('PATCH', '/api/admin/listings/:id',    updateListingStatus,  true),
   route('DELETE','/api/admin/listings/:id',    deleteListing,        true),
@@ -190,6 +193,15 @@ export default {
       retryPendingGestionSalesSync(env).then(
         (r) => console.log('[cron] retryPendingGestionSalesSync:', JSON.stringify(r)),
         (e) => console.error('[cron] retryPendingGestionSalesSync a échoué', e instanceof Error ? e.message : String(e)),
+      ),
+    );
+    // Rappel mensuel aux vendeurs dont l'annonce est toujours "active" (cf.
+    // migration_listing_seller_actions.sql) : leur redemander si l'objet est
+    // toujours disponible, avec un lien pour la retirer en un clic si vendu.
+    ctx.waitUntil(
+      sendListingActiveReminders(env).then(
+        (r) => console.log('[cron] sendListingActiveReminders:', JSON.stringify(r)),
+        (e) => console.error('[cron] sendListingActiveReminders a échoué', e instanceof Error ? e.message : String(e)),
       ),
     );
   },
@@ -2025,6 +2037,15 @@ async function sendListingConfirmationToSeller(env, listing) {
   const priceLabel = Number(listing.price).toFixed(2).replace('.', ',') + ' €';
   const categoryLabel = LISTING_CATEGORY_LABELS[listing.category] || listing.category;
   const conditionLabel = LISTING_CONDITION_LABELS[listing.condition] || listing.condition;
+  const manageLinkHtml = listing.manage_token
+    ? `<p style="margin-top:24px">
+         Une fois l'objet vendu, inutile de nous écrire : cliquez simplement sur ce lien pour
+         retirer votre annonce du site —
+         <a href="${buildListingManageUrl(listing.id, listing.manage_token)}" style="background:#C8181A;color:#fff;padding:10px 18px;border-radius:4px;text-decoration:none;display:inline-block;margin-top:8px">
+           C'est vendu, retirer mon annonce
+         </a>
+       </p>`
+    : '';
 
   const emailPayload = {
     sender: {
@@ -2048,6 +2069,7 @@ async function sendListingConfirmationToSeller(env, listing) {
         </table>
         <p>Vous n'avez rien d'autre à faire pour le moment. Si votre annonce est refusée
            ou nécessite une modification, le club vous contactera directement à cette adresse.</p>
+        ${manageLinkHtml}
         <p style="margin-top:24px">
           Pour toute question : <a href="mailto:${CLUB_CONTACT_EMAIL}" style="color:#C8181A">${CLUB_CONTACT_EMAIL}</a>
         </p>
@@ -2600,6 +2622,169 @@ const LISTING_CONDITIONS = ['neuf', 'tres_bon', 'bon', 'correct'];
 const LISTING_CATEGORIES = ['gants', 'protections', 'tenues', 'accessoires', 'divers'];
 const LISTING_STATUSES   = ['pending', 'active', 'sold', 'rejected'];
 
+// ── Actions vendeur en libre-service (cf. migration_listing_seller_actions.sql) ──
+// Chaque annonce reçoit à sa création un `manage_token` secret (48 octets
+// aléatoires) qui permet à SON vendeur, via un simple lien envoyé par email,
+// de la marquer vendue lui-même — sans compte, sans mot de passe, sans
+// repasser par le club. `last_reminder_at` sert au rappel mensuel envoyé par
+// le cron tant que l'annonce reste "active" (cf. sendListingActiveReminders).
+const LISTING_REMINDER_INTERVAL_DAYS = 30;
+
+function buildListingManageUrl(listingId, token) {
+  const url = new URL(SHOP_BASE_URL);
+  url.searchParams.set('listing_action', 'vendu');
+  url.searchParams.set('listing_id', String(listingId));
+  url.searchParams.set('listing_token', token);
+  return url.toString();
+}
+
+// Les annonces créées avant cette fonctionnalité (ou toute annonce dont le
+// jeton n'aurait pas été généré) reçoivent leur manage_token à la volée, au
+// premier besoin — pas de backfill à lancer séparément.
+async function ensureListingManageToken(env, listing) {
+  if (listing.manage_token) return listing.manage_token;
+  const token = randomToken();
+  await env.DB.prepare('UPDATE listings SET manage_token = ? WHERE id = ?').bind(token, listing.id).run();
+  listing.manage_token = token;
+  return token;
+}
+
+// GET /api/listings/:id/manage?token=... — vérifie le lien vendeur et
+// renvoie un résumé minimal (jamais l'email/téléphone), utilisé par la page
+// publique pour afficher la confirmation avant de marquer vendu.
+async function getListingManageInfo(_req, env, params, url) {
+  const token = url.searchParams.get('token') || '';
+  const listingId = Number(params.id);
+  if (!token || !Number.isInteger(listingId)) return json({ error: 'Lien invalide' }, 400);
+
+  const listing = await env.DB.prepare(
+    'SELECT id, title, price, status, manage_token FROM listings WHERE id = ?'
+  ).bind(listingId).first();
+  if (!listing || !listing.manage_token || !(await secureCompare(token, listing.manage_token))) {
+    return json({ error: 'Lien invalide ou expiré' }, 404);
+  }
+  return json({ id: listing.id, title: listing.title, price: listing.price, status: listing.status });
+}
+
+// POST /api/listings/:id/mark-sold — body: { token } — le vendeur marque
+// lui-même son annonce comme vendue. Idempotent (si déjà "sold", renvoie
+// simplement success) ; refuse seulement une annonce "rejected".
+async function markListingSoldBySeller(request, env, params) {
+  const ip = getClientIp(request);
+  if (await isPublicActionRateLimited(env, ip, 'listing_mark_sold', 20, 60)) {
+    return json({ error: 'Trop de tentatives. Réessayez plus tard.' }, 429);
+  }
+  await recordPublicAction(env, ip, 'listing_mark_sold');
+
+  const body = await request.json().catch(() => ({}));
+  const token = String(body.token || '');
+  const listingId = Number(params.id);
+  if (!token || !Number.isInteger(listingId)) return json({ error: 'Lien invalide' }, 400);
+
+  const listing = await env.DB.prepare(
+    'SELECT id, status, manage_token FROM listings WHERE id = ?'
+  ).bind(listingId).first();
+  if (!listing || !listing.manage_token || !(await secureCompare(token, listing.manage_token))) {
+    return json({ error: 'Lien invalide ou expiré' }, 404);
+  }
+  if (listing.status === 'rejected') {
+    return json({ error: "Cette annonce a été refusée par le club, elle ne peut pas être marquée vendue." }, 409);
+  }
+  if (listing.status === 'sold') {
+    return json({ success: true, status: 'sold', already: true });
+  }
+
+  await env.DB.prepare("UPDATE listings SET status = 'sold', updated_at = datetime('now') WHERE id = ?")
+    .bind(listingId).run();
+  return json({ success: true, status: 'sold' });
+}
+
+// Cron quotidien (cf. scheduled() plus haut) : relance tout vendeur dont
+// l'annonce est "active" depuis au moins LISTING_REMINDER_INTERVAL_DAYS
+// jours sans rappel récent, avec le lien pour la retirer si elle est vendue.
+// COALESCE(last_reminder_at, created_at) : avant le tout premier rappel, on
+// compte depuis la création de l'annonce.
+async function sendListingActiveReminders(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM listings
+     WHERE status = 'active'
+       AND COALESCE(last_reminder_at, created_at) <= datetime('now', '-' || ? || ' days')
+     ORDER BY id ASC`
+  ).bind(LISTING_REMINDER_INTERVAL_DAYS).all();
+
+  let sent = 0, failed = 0;
+  for (const listing of results) {
+    try {
+      const token = await ensureListingManageToken(env, listing);
+      await sendListingReminderEmail(env, { ...listing, manage_token: token });
+      await env.DB.prepare("UPDATE listings SET last_reminder_at = datetime('now') WHERE id = ?")
+        .bind(listing.id).run();
+      sent++;
+    } catch (err) {
+      console.error(`[cron] Rappel annonce #${listing.id} échoué:`, err instanceof Error ? err.message : String(err));
+      failed++;
+    }
+  }
+  return { checked: results.length, sent, failed };
+}
+
+// Brevo — email de rappel mensuel envoyé au vendeur tant que son annonce
+// reste publiée, avec le lien direct pour la retirer si l'objet est vendu.
+async function sendListingReminderEmail(env, listing) {
+  if (!env.BREVO_API_KEY) {
+    console.warn('BREVO_API_KEY manquant : rappel annonce non envoyé');
+    return { attempted: false, sent: false };
+  }
+
+  const priceLabel = Number(listing.price).toFixed(2).replace('.', ',') + ' €';
+  const manageUrl = buildListingManageUrl(listing.id, listing.manage_token);
+
+  const emailPayload = {
+    sender: {
+      name:  env.BREVO_FROM_NAME  || 'AFFB Boutique',
+      email: env.BREVO_FROM_EMAIL || MAIL_SENDER_EMAIL,
+    },
+    to: [{ email: listing.contact_email, name: listing.contact_name }],
+    subject: `Votre annonce « ${listing.title} » est-elle toujours disponible ?`,
+    htmlContent: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#222">
+        <h2 style="color:#C8181A">Toujours en vente ?</h2>
+        <p>Bonjour ${escapeHtml(listing.contact_name)},</p>
+        <p>Votre annonce <strong>${escapeHtml(listing.title)}</strong> (${priceLabel}) est en ligne
+           sur la boutique AFFB depuis un moment.</p>
+        <p><strong>Si l'objet a déjà été vendu</strong>, merci de le signaler en un clic pour libérer
+           la place aux autres annonces :</p>
+        <p style="margin:20px 0">
+          <a href="${manageUrl}" style="background:#C8181A;color:#fff;padding:10px 18px;border-radius:4px;text-decoration:none;display:inline-block">
+            C'est vendu, retirer mon annonce
+          </a>
+        </p>
+        <p>Sinon, vous n'avez rien à faire : elle reste en ligne et nous vous renverrons ce
+           rappel dans un mois.</p>
+        <p style="margin-top:24px">
+          Une question ? <a href="mailto:${CLUB_CONTACT_EMAIL}" style="color:#C8181A">${CLUB_CONTACT_EMAIL}</a>
+        </p>
+      </div>
+    `,
+  };
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key':      env.BREVO_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(emailPayload),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brevo error ${res.status}: ${err}`);
+  }
+
+  return { attempted: true, sent: true, recipient: listing.contact_email };
+}
+
 // GET /api/listings — annonces actives uniquement
 async function getListings(request, env, _p, url) {
   const category = url.searchParams.get('category');
@@ -2647,10 +2832,15 @@ async function createListing(request, env) {
   if (!contact_name)   return json({ error: 'Nom du vendeur obligatoire'}, 400);
   if (!contact_email)  return json({ error: 'Email invalide'            }, 400);
 
+  // Jeton secret propre à cette annonce : permet ensuite au vendeur de la
+  // marquer vendue lui-même (lien envoyé par email, cf. mark-sold ci-dessous)
+  // sans avoir besoin d'un compte ni de repasser par le club.
+  const manageToken = randomToken();
+
   const result = await env.DB.prepare(
-    `INSERT INTO listings (title, description, price, category, condition, contact_name, contact_email, contact_phone, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
-  ).bind(title, description, price, category, condition, contact_name, contact_email, contact_phone).run();
+    `INSERT INTO listings (title, description, price, category, condition, contact_name, contact_email, contact_phone, status, manage_token)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+  ).bind(title, description, price, category, condition, contact_name, contact_email, contact_phone, manageToken).run();
 
   const listingId = result.meta.last_row_id;
   const listingData = {
@@ -2663,6 +2853,7 @@ async function createListing(request, env) {
     contact_name,
     contact_email,
     contact_phone,
+    manage_token: manageToken,
   };
 
   // Notifications Brevo (best-effort : ne doivent jamais faire échouer le dépôt)

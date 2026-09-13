@@ -263,6 +263,35 @@ curl -X POST https://<worker-url>/api/admin/invoice/5 \
 
 ---
 
+## 9. Annonces d'occasion — actions vendeur en libre-service
+
+Depuis `migration_listing_seller_actions.sql`, chaque annonce reçoit un lien
+secret propre au vendeur (envoyé par email) qui lui permet de :
+
+- **marquer lui-même son annonce comme vendue**, sans compte ni repasser par
+  le club — lien inclus dans l'email de confirmation de dépôt, et rappelé
+  dans les relances mensuelles ;
+- **recevoir un rappel automatique une fois par mois** tant que son annonce
+  reste publiée (`status = 'active'`), lui redemandant si l'objet est
+  toujours disponible. Le rappel est envoyé par le cron quotidien existant
+  (`[triggers] crons` dans `wrangler.toml`), qui vérifie chaque jour quelles
+  annonces n'ont pas été relancées depuis 30 jours.
+
+```bash
+# ⚠️ À exécuter AVANT de déployer le nouveau code
+npm run db:migrate:listing-actions          # local
+npm run db:migrate:listing-actions:remote   # production
+```
+
+Aucune configuration supplémentaire n'est nécessaire : le lien de gestion
+(`manage_token`) est généré automatiquement à la création de l'annonce, et
+rétroactivement pour les annonces existantes lors de leur premier rappel.
+Le panel admin (`/admin` → onglet Annonces) garde en parallèle la
+possibilité de marquer une annonce vendue ou de la supprimer manuellement à
+tout moment.
+
+---
+
 ## Développement local
 
 ```bash
