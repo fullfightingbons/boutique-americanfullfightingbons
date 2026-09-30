@@ -1221,6 +1221,52 @@
   // ── Panier / catalogue ───────────────────────────────────────
   const CART_STORAGE_KEY = 'affb_boutique_cart_v1';
   const cartItems = [];
+
+  // ── Membre du Bureau : tenue offerte ──────────────────────────
+  // Le jeton membre arrive depuis l'espace membre dans le fragment d'URL
+  // (#membre=...) : un fragment n'est jamais envoyé au serveur ni dans le
+  // Referer. On le garde le temps de l'onglet puis on nettoie l'adresse.
+  // Les prix affichés ici sont indicatifs : le serveur (createOrder) revérifie
+  // l'identité auprès de gestion et recalcule toujours le total.
+  const MEMBER_TOKEN_KEY = 'affb_member_token';
+  let memberBureau = false;
+
+  (function captureMemberToken() {
+    try {
+      var m = /(?:^|[#&])membre=([^&]+)/.exec(location.hash || '');
+      if (!m) return;
+      sessionStorage.setItem(MEMBER_TOKEN_KEY, decodeURIComponent(m[1]));
+      history.replaceState(null, '', location.pathname + location.search);
+    } catch {}
+  })();
+
+  function getMemberToken() {
+    try { return sessionStorage.getItem(MEMBER_TOKEN_KEY) || ''; } catch { return ''; }
+  }
+
+  function isClubClothingName(name) {
+    return /t-?shirt|pantalon/i.test(String(name || ''));
+  }
+
+  function unitPriceOf(item) {
+    return memberBureau && isClubClothingName(item.name) ? 0 : item.price;
+  }
+
+  function priceLabel(p) {
+    return memberBureau && isClubClothingName(p.name) ? 'Offert' : p.price + '€';
+  }
+
+  async function loadMemberPerks() {
+    var token = getMemberToken();
+    if (!token) return;
+    try {
+      var res = await fetch('/api/member/perks', { headers: { 'Authorization': 'Bearer ' + token } });
+      if (res.status === 401) { sessionStorage.removeItem(MEMBER_TOKEN_KEY); return; }
+      var body = await res.json();
+      memberBureau = !!(body && body.data && body.data.bureau);
+    } catch {}
+    if (memberBureau) { refreshCartDisplay(); loadProducts(); }
+  }
   const cartCount = document.getElementById('cartCount');
   const toast     = document.getElementById('toast');
   let toastTimer;
@@ -1241,7 +1287,7 @@
 
   function showCartInfoToast() {
     const totalQty = cartItems.reduce(function(sum, item) { return sum + item.quantity; }, 0);
-    const totalAmount = cartItems.reduce(function(sum, item) { return sum + (item.price * item.quantity); }, 0);
+    const totalAmount = cartItems.reduce(function(sum, item) { return sum + (unitPriceOf(item) * item.quantity); }, 0);
     if (!totalQty) return;
     toast.textContent = totalQty + (totalQty > 1 ? ' articles' : ' article') + ' — ' + totalAmount.toFixed(2) + '€';
     toast.className = 'cart-toast cart-info show';
@@ -1475,7 +1521,7 @@
   function refreshCartDisplay() {
     saveCart();
     const totalQty = cartItems.reduce(function(sum, item) { return sum + item.quantity; }, 0);
-    const totalAmount = cartItems.reduce(function(sum, item) { return sum + (item.price * item.quantity); }, 0);
+    const totalAmount = cartItems.reduce(function(sum, item) { return sum + (unitPriceOf(item) * item.quantity); }, 0);
     cartCount.textContent = totalQty;
     document.getElementById('cartBtn').setAttribute('title', totalQty ? ('Panier : ' + totalAmount.toFixed(2) + '€') : 'Panier vide');
 
@@ -1496,7 +1542,7 @@
           <div style="display:flex;justify-content:space-between;gap:10px">
             <div>
               <div style="color:var(--paper);font-size:14px">${escapeHtml(label)}</div>
-              <div style="font-size:12px;color:var(--gray)">${item.price.toFixed(2)}€ / unité</div>
+              <div style="font-size:12px;color:var(--gray)">${unitPriceOf(item) === 0 ? 'Offert' : unitPriceOf(item).toFixed(2) + '€ / unité'}</div>
               <div style="font-size:11px;color:${max <= 3 ? 'var(--gold-light)' : 'var(--gray)'};margin-top:4px">${escapeHtml(stockText)}</div>
             </div>
             <button onclick="removeCartItem('${escapeAttr(item._key)}')" class="cart-line-remove" aria-label="Retirer l'article">✕</button>
@@ -1507,7 +1553,7 @@
               <span style="min-width:20px;text-align:center;color:var(--paper)">${item.quantity}</span>
               <button onclick="updateCartQty('${escapeAttr(item._key)}', 1)" class="cart-qty-btn" style="cursor:${item.quantity >= max ? 'not-allowed' : 'pointer'};opacity:${item.quantity >= max ? '.4' : '1'}" ${item.quantity >= max ? 'disabled' : ''} aria-label="Augmenter la quantité">+</button>
             </div>
-            <div style="color:var(--paper);font-weight:600">${(item.price * item.quantity).toFixed(2)}€</div>
+            <div style="color:var(--paper);font-weight:600">${(unitPriceOf(item) * item.quantity).toFixed(2)}€</div>
           </div>
         </div>
       `;
@@ -1673,9 +1719,9 @@
 
     document.getElementById('productModalCat').textContent = capitalize(p.category);
     document.getElementById('productModalName').textContent = p.name;
-    document.getElementById('productModalPrice').textContent = p.price + '€';
+    document.getElementById('productModalPrice').textContent = priceLabel(p);
     const oldEl = document.getElementById('productModalPriceOld');
-    oldEl.textContent = p.price_old ? p.price_old + '€' : '';
+    oldEl.textContent = (p.price_old && priceLabel(p) !== 'Offert') ? p.price_old + '€' : '';
     document.getElementById('productModalDesc').textContent = p.description || '';
 
     const sizes = Array.isArray(p.sizes) ? p.sizes : [];
@@ -1880,8 +1926,8 @@
         '<div class="product-info">' +
         '<div class="product-cat">' + escapeHtml(capitalize(p.category)) + '</div>' +
         '<div class="product-name">' + escapeHtml(p.name) + '</div>' +
-        '<div><span class="product-price">' + p.price + '€</span>' +
-        (p.price_old ? '<span class="product-price-old">' + p.price_old + '€</span>' : '') + '</div>' +
+        '<div><span class="product-price">' + priceLabel(p) + '</span>' +
+        (p.price_old && priceLabel(p) !== 'Offert' ? '<span class="product-price-old">' + p.price_old + '€</span>' : '') + '</div>' +
         sizeSummary +
         stockLine +
         '<div class="product-card-footer"><span class="product-card-note">' + escapeHtml(hasSizes ? 'Tenue multi-tailles' : 'Article disponible immédiatement') + '</span><span class="product-card-note">Voir détail</span></div>' +
@@ -1951,7 +1997,10 @@
     };
 
     try {
-      const res  = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const orderHeaders = { 'Content-Type': 'application/json' };
+      const memberToken = getMemberToken();
+      if (memberToken) orderHeaders['Authorization'] = 'Bearer ' + memberToken;
+      const res  = await fetch('/api/orders', { method: 'POST', headers: orderHeaders, body: JSON.stringify(payload) });
       const data = await res.json();
       if (res.ok) {
         const checkoutRes = await fetch('/api/checkout/' + data.order_id, {
@@ -1963,6 +2012,16 @@
           body: JSON.stringify({ order_token: data.order_token })
         });
         const checkoutData = await checkoutRes.json();
+        if (checkoutRes.ok && checkoutData.free) {
+          // Commande à 0 € (tenue offerte) : confirmée sans passer par HelloAsso.
+          cartItems.length = 0;
+          refreshCartDisplay();
+          closeOrderModal();
+          showToast('✓ Commande confirmée — commande #' + data.order_id, 4000);
+          showOrderSuccess(data.order_id, data.total, payload.customer_email);
+          loadProducts();
+          return;
+        }
         if (!checkoutRes.ok || !checkoutData.checkout_url) {
           showToast('Erreur paiement : ' + (checkoutData.message || checkoutData.error || 'checkout indisponible'), 4500);
           return;
@@ -1991,6 +2050,7 @@
     loadCart();
     refreshCartDisplay();
     loadProducts();
+    loadMemberPerks();
     document.getElementById('cartBtn').addEventListener('click', function() {
       if (cartItems.length) {
         showCartInfoToast();

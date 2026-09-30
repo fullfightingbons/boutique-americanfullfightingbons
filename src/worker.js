@@ -14,6 +14,7 @@ import MENTIONS_HTML from './mentions-legales.html';
 import CGV_HTML from './cgv.html';
 import { buildHelloAssoPaymentState } from './helloasso-helpers.mjs';
 import { buildRevenueBreakdown } from './stats-helpers.mjs';
+import { effectiveUnitPrice } from './perks-helpers.mjs';
 import { buildDocumentPdfBytes } from './document-template.js';
 import { bytesToBase64 } from './pdf-engine.js';
 import { LOGO_JPG_BASE64, FAVICON_ICO_BASE64, APPLE_TOUCH_ICON_BASE64, ICON_512_BASE64 } from './static-assets.js';
@@ -72,6 +73,7 @@ const routes = [
   route('POST',  '/api/orders',              createOrder),
   route('GET',   '/api/orders/:id',          getOrder),
   route('GET',   '/api/member/orders',              getMemberOrders),
+  route('GET',   '/api/member/perks',               getMemberPerks),
   route('GET',   '/api/member/orders/:id/invoice',  getMemberOrderInvoice),
   route('GET',   '/api/wishlist',             getWishlist),
   route('POST',  '/api/wishlist',             addWishlistItem),
@@ -1296,6 +1298,47 @@ async function applyExternalStockSync(request, env) {
   }
 }
 
+// ── Tenue offerte aux Membres du Bureau ───────────────────────────────
+// Un t-shirt/pantalon tombe à 0 € uniquement pour un adhérent IDENTIFIÉ :
+// jeton membre signé (espace membre, SESSION_SECRET partagé) + confirmation
+// de gestion que sa fiche porte la discipline "membre du bureau". L'email
+// saisi dans le formulaire de commande ne compte jamais : n'importe qui
+// pourrait taper l'email d'un membre du bureau.
+// Même convention que l'inscription (boutique-stock.js) : un produit est un
+// vêtement offert si son nom contient "t-shirt"/"tshirt" ou "pantalon".
+// Ne lève jamais : au moindre doute (pas de jeton, gestion injoignable,
+// secret manquant), l'adhérent paie le tarif normal plutôt que de bloquer
+// la commande — et jamais l'inverse.
+async function resolveBureauMember(request, env) {
+  try {
+    if (!/^Bearer\s+\S+/i.test(request.headers.get('Authorization') || '')) return false;
+    const member = await requireMember(request, env);
+    if (!member || !env.GESTION_SYNC_TOKEN) return false;
+    const res = await fetch(`${getGestionApiBase(env)}/api/internal/boutique/member-status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Boutique-Sales-Token': env.GESTION_SYNC_TOKEN,
+      },
+      body: JSON.stringify({ email: String(member.email).trim().toLowerCase() }),
+    });
+    if (!res.ok) return false;
+    const body = await res.json().catch(() => null);
+    return body?.data?.bureau === true;
+  } catch (err) {
+    console.error('[bureau] identification impossible :', err?.message || err);
+    return false;
+  }
+}
+
+// GET /api/member/perks — permet à la page boutique d'afficher "Offert" au
+// membre du bureau connecté. Purement informatif : le prix réellement
+// facturé est toujours recalculé par createOrder.
+async function getMemberPerks(request, env) {
+  const bureau = await resolveBureauMember(request, env);
+  return json({ data: { bureau } }, 200, { 'Cache-Control': 'private, no-store' });
+}
+
 async function createOrder(request, env) {
   const body = await request.json();
   if (!(await verifyTurnstile(body.turnstile_token, env, getClientIp(request)))) {
@@ -1311,6 +1354,7 @@ async function createOrder(request, env) {
     return json({ error: 'Champs obligatoires manquants : customer_name, customer_email, items' }, 400);
   }
 
+  const bureauMember = await resolveBureauMember(request, env);
   let total = 0;
   const enrichedItems = [];
 
@@ -1339,13 +1383,14 @@ async function createOrder(request, env) {
     if (product.stock < item.quantity) {
       return json({ error: `Stock insuffisant pour "${product.name}" (stock: ${product.stock})` }, 409);
     }
-    total += product.price * item.quantity;
+    const unitPrice = effectiveUnitPrice(product, bureauMember);
+    total += unitPrice * item.quantity;
     enrichedItems.push({
       product_id: Number(item.product_id),
       quantity: Number(item.quantity),
       size: requestedSize,
       product_name: requestedSize ? `${product.name} (${requestedSize})` : product.name,
-      unit_price: product.price,
+      unit_price: unitPrice,
     });
   }
 
@@ -1726,6 +1771,25 @@ async function createCheckout(request, env, params) {
   }
   if (!['pending_payment', 'pending'].includes(order.status)) {
     return json({ error: 'Commande non payable dans son état actuel' }, 409);
+  }
+
+  // Commande à 0 € (tenue offerte à un Membre du Bureau, rien d'autre au
+  // panier) : HelloAsso ne sait pas créer un paiement nul — on confirme
+  // directement la commande (facture envoyée, stock déjà réservé).
+  if (Number(order.total) <= 0) {
+    try {
+      await finalizePaidOrder(env, order.id, null, 'gratuit');
+    } catch (err) {
+      // La confirmation passe le statut à 'confirmed' avant l'envoi de la
+      // facture : si seul l'email a échoué, la commande est bien validée et
+      // ne doit pas apparaître comme une erreur au membre.
+      console.error(`[checkout] finalisation commande gratuite #${order.id} :`, err?.message || err);
+      const after = await env.DB.prepare('SELECT status FROM orders WHERE id = ?').bind(order.id).first();
+      if (after?.status !== 'confirmed') {
+        return json({ error: 'Impossible de confirmer la commande gratuite, merci de réessayer.' }, 500);
+      }
+    }
+    return json({ success: true, free: true, order_id: order.id });
   }
 
   const { results: items } = await env.DB.prepare('SELECT * FROM order_items WHERE order_id = ?').bind(params.orderId).all();
@@ -2165,6 +2229,16 @@ async function syncOrderSaleToGestion(env, orderId) {
   const order = await env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
   if (!order) return { synced: false, reason: 'commande introuvable' };
 
+  // Commande gratuite : gestion refuse (à raison) les ventes à 0 €. On la
+  // marque comme traitée pour que le cron de rattrapage ne la reprenne pas
+  // indéfiniment.
+  if (!(Number(order.total) > 0)) {
+    await env.DB.prepare('UPDATE orders SET gestion_synced_at = ? WHERE id = ?')
+      .bind(new Date().toISOString().replace('T', ' ').slice(0, 19), orderId)
+      .run();
+    return { synced: true, skipped: 'commande gratuite' };
+  }
+
   const { results: items } = await env.DB.prepare(
     'SELECT product_name, quantity, unit_price FROM order_items WHERE order_id = ?'
   ).bind(orderId).all();
@@ -2233,7 +2307,7 @@ async function retryPendingGestionSalesSync(env) {
   return { checked: (results || []).length, synced, failed };
 }
 
-async function finalizePaidOrder(env, orderId, helloAssoIntent) {
+async function finalizePaidOrder(env, orderId, helloAssoIntent, source = 'helloasso') {
   await ensureSupportTables(env);
   const order = await env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
   if (!order) throw new Error('Commande introuvable');
@@ -2251,7 +2325,7 @@ async function finalizePaidOrder(env, orderId, helloAssoIntent) {
   // Historique de transition
   await env.DB.prepare(
     'INSERT INTO order_status_history (order_id, old_status, new_status, changed_at, changed_by) VALUES (?, ?, ?, ?, ?)'
-  ).bind(orderId, order.status, 'confirmed', now, 'helloasso').run();
+  ).bind(orderId, order.status, 'confirmed', now, source).run();
 
   // Sauvegarder les données de paiement HelloAsso si disponibles
   if (helloAssoIntent) {
