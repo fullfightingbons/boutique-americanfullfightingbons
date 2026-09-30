@@ -14,7 +14,7 @@ import MENTIONS_HTML from './mentions-legales.html';
 import CGV_HTML from './cgv.html';
 import { buildHelloAssoPaymentState } from './helloasso-helpers.mjs';
 import { buildRevenueBreakdown } from './stats-helpers.mjs';
-import { effectiveUnitPrice } from './perks-helpers.mjs';
+import { effectiveUnitPrice, lookupBureauStatus } from './perks-helpers.mjs';
 import { buildDocumentPdfBytes } from './document-template.js';
 import { bytesToBase64 } from './pdf-engine.js';
 import { LOGO_JPG_BASE64, FAVICON_ICO_BASE64, APPLE_TOUCH_ICON_BASE64, ICON_512_BASE64 } from './static-assets.js';
@@ -1309,34 +1309,37 @@ async function applyExternalStockSync(request, env) {
 // Ne lève jamais : au moindre doute (pas de jeton, gestion injoignable,
 // secret manquant), l'adhérent paie le tarif normal plutôt que de bloquer
 // la commande — et jamais l'inverse.
-async function resolveBureauMember(request, env) {
-  try {
-    if (!/^Bearer\s+\S+/i.test(request.headers.get('Authorization') || '')) return false;
-    const member = await requireMember(request, env);
-    if (!member || !env.GESTION_SYNC_TOKEN) return false;
-    const res = await fetch(`${getGestionApiBase(env)}/api/internal/boutique/member-status`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Boutique-Sales-Token': env.GESTION_SYNC_TOKEN,
-      },
-      body: JSON.stringify({ email: String(member.email).trim().toLowerCase() }),
-    });
-    if (!res.ok) return false;
-    const body = await res.json().catch(() => null);
-    return body?.data?.bureau === true;
-  } catch (err) {
-    console.error('[bureau] identification impossible :', err?.message || err);
-    return false;
+async function checkBureauMember(request, env) {
+  const result = await lookupBureauStatus({
+    hasBearer: /^Bearer\s+\S+/i.test(request.headers.get('Authorization') || ''),
+    requireMember: () => requireMember(request, env),
+    gestionUrl: `${getGestionApiBase(env)}/api/internal/boutique/member-status`,
+    syncToken: env.GESTION_SYNC_TOKEN,
+    fetchImpl: (url, init) => fetch(url, init),
+  });
+  // Motifs "normaux" (visiteur sans jeton, fiche non bureau) : rien à signaler.
+  // Les autres sont des pannes/erreurs de configuration à voir dans `wrangler tail`.
+  if (!result.bureau && result.reason !== 'no_token' && result.reason !== 'not_bureau') {
+    console.error('[bureau] tarif bureau non appliqué :', result.reason, result.status || '', result.detail || '');
   }
+  return result;
+}
+
+async function resolveBureauMember(request, env) {
+  return (await checkBureauMember(request, env)).bureau === true;
 }
 
 // GET /api/member/perks — permet à la page boutique d'afficher "Offert" au
 // membre du bureau connecté. Purement informatif : le prix réellement
-// facturé est toujours recalculé par createOrder.
+// facturé est toujours recalculé par createOrder. Renvoie aussi le motif
+// (`reason`) quand le tarif bureau n'est pas appliqué, pour le diagnostic ;
+// le détail technique (`detail`) reste dans les logs serveur.
 async function getMemberPerks(request, env) {
-  const bureau = await resolveBureauMember(request, env);
-  return json({ data: { bureau } }, 200, { 'Cache-Control': 'private, no-store' });
+  const { bureau, reason, status, checked_email } = await checkBureauMember(request, env);
+  const data = { bureau, reason };
+  if (status) data.status = status;
+  if (checked_email) data.checked_email = checked_email;
+  return json({ data }, 200, { 'Cache-Control': 'private, no-store' });
 }
 
 async function createOrder(request, env) {

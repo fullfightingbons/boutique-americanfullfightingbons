@@ -1256,16 +1256,33 @@
     return memberBureau && isClubClothingName(p.name) ? 'Offert' : p.price + '€';
   }
 
+  // Motifs (renvoyés par /api/member/perks) qui relèvent d'une panne ou d'une
+  // erreur de configuration : on prévient le membre plutôt que de lui laisser
+  // croire, sans explication, que la tenue n'est pas offerte.
+  const PERKS_TECHNICAL_REASONS = ['server_config', 'gestion_unreachable', 'gestion_refused', 'gestion_bad_response', 'network'];
+
   async function loadMemberPerks() {
     var token = getMemberToken();
     if (!token) return;
+    var reason = '';
     try {
       var res = await fetch('/api/member/perks', { headers: { 'Authorization': 'Bearer ' + token } });
       if (res.status === 401) { sessionStorage.removeItem(MEMBER_TOKEN_KEY); return; }
       var body = await res.json();
       memberBureau = !!(body && body.data && body.data.bureau);
-    } catch {}
-    if (memberBureau) { refreshCartDisplay(); loadProducts(); }
+      reason = (body && body.data && body.data.reason) || '';
+      // Visible dans la console du navigateur (F12) pour le diagnostic.
+      console.info('[boutique] tarif membre du bureau :', body && body.data);
+    } catch (err) {
+      reason = 'network';
+    }
+    if (memberBureau) { refreshCartDisplay(); loadProducts(); return; }
+    if (reason === 'invalid_token') {
+      try { sessionStorage.removeItem(MEMBER_TOKEN_KEY); } catch {}
+      showToast('Session espace membre expirée : reconnectez-vous, puis rouvrez la boutique depuis votre espace.', 6000);
+    } else if (PERKS_TECHNICAL_REASONS.indexOf(reason) !== -1) {
+      showToast('Statut de membre non vérifié (erreur technique) : tarifs publics affichés.', 6000);
+    }
   }
   const cartCount = document.getElementById('cartCount');
   const toast     = document.getElementById('toast');

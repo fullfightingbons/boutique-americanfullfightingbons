@@ -292,6 +292,31 @@ tout moment.
 
 ---
 
+## 10. Tenue offerte aux Membres du Bureau — dépannage
+
+Les t-shirts et pantalons (nom de produit contenant « t-shirt », « tshirt » ou
+« pantalon ») passent à 0 € pour un adhérent **connecté à l'espace membre**
+dont la fiche `gestion` a le type d'adhésion « Membre du Bureau ». Il faut
+ouvrir la boutique **depuis le lien « Boutique » de l'espace membre**.
+
+Si les prix ne tombent pas à 0 €, ouvrir la console du navigateur (F12) sur la
+boutique : la ligne `[boutique] tarif membre du bureau :` affiche le motif
+(`reason`) :
+
+| reason | Signification | À vérifier |
+|---|---|---|
+| `bureau` | Tarif bureau appliqué | — |
+| `no_token` | Boutique ouverte sans passer par l'espace membre | Ouvrir via le lien de l'espace membre (connecté) |
+| `invalid_token` | Jeton refusé (expiré, ou signé avec un autre secret) | Se reconnecter ; `SESSION_SECRET` identique dans `boutique` et `gestion` |
+| `server_config` | Secret manquant côté boutique | `SESSION_SECRET` (≥ 32 car.) et `GESTION_SYNC_TOKEN` définis en secrets |
+| `gestion_unreachable` | Appel réseau vers `gestion` échoué | `GESTION_API_BASE_URL`, état du worker `gestion` |
+| `gestion_refused` (`status` 401) | `gestion` refuse le secret partagé, ou la route n'est pas déployée | `GESTION_SYNC_TOKEN` (boutique) = `BOUTIQUE_SALES_SYNC_TOKEN` (gestion) ; `gestion` redéployé |
+| `gestion_bad_response` | Réponse inattendue de `gestion` | `wrangler tail` sur `gestion` |
+| `not_bureau` | La fiche adhérent (recherchée par `checked_email`) n'est pas de type « Membre du Bureau » | Type d'adhésion de la fiche dans `gestion`, et email de la fiche = email du compte espace membre |
+
+Les erreurs techniques sont aussi journalisées (`[bureau] tarif bureau non
+appliqué`) : `npx wrangler tail`.
+
 ## Développement local
 
 ```bash
