@@ -317,6 +317,27 @@ boutique : la ligne `[boutique] tarif membre du bureau :` affiche le motif
 Les erreurs techniques sont aussi journalisées (`[bureau] tarif bureau non
 appliqué`) : `npx wrangler tail`.
 
+## 11. Guide des tailles (t-shirts et pantalons)
+
+La fiche produit (fenêtre qui s'ouvre au clic sur un article) affiche un lien
+« 📏 Guide des tailles » sous le sélecteur de taille. Il déplie un tableau de
+mensurations (en cm) et met en évidence la ligne de la taille choisie.
+
+- **Quels produits ?** Ceux dont le nom contient « t-shirt », « tee-shirt »,
+  « tshirt » (tableau poitrine / taille) ou « pantalon » (tableau hanches /
+  taille). Les autres produits n'ont pas de guide.
+- **Quelles lignes ?** Uniquement les tailles réellement proposées sur le produit
+  (`sizes` en base). Si aucune taille ne correspond au tableau (ex. tailles
+  enfant « 10 ans »), le guide est masqué. `XXL`, `XXXL` sont lus comme `2XL`, `3XL`.
+- **Où modifier les valeurs ?** Dans `src/index.html`, constante `SIZE_GUIDES`
+  (une ligne par taille). Aucune migration ni changement de base nécessaire.
+- **Source des mesures :** guide des tailles Decathlon « Vêtements de sport
+  Homme » (tailles universelles, mesures du corps). À comparer avec le lien
+  « Guide des tailles » de la fiche Decathlon Pro de chaque article si Decathlon
+  publie un tableau spécifique.
+
+---
+
 ## Développement local
 
 ```bash

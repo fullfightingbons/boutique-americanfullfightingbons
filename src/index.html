@@ -571,6 +571,42 @@
   .size-btn:hover:not(.out-of-stock) { border-color: var(--red); color: var(--paper); }
   .size-btn.selected { background: var(--red); border-color: var(--red); color: var(--paper); }
   .size-btn.out-of-stock { opacity: 0.4; cursor: pointer; text-decoration: line-through; }
+  /* Guide des tailles (t-shirt / pantalon) */
+  .size-guide { margin-top: -.25rem; }
+  .size-guide[hidden] { display: none; }
+  .size-guide-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: none; border: none; padding: 4px 0; cursor: pointer;
+    font-family: var(--font-body); font-size: 13px; font-weight: 600;
+    color: var(--gold-light); text-decoration: underline; text-underline-offset: 3px;
+  }
+  .size-guide-toggle:hover { color: var(--paper); }
+  .size-guide-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 4px; }
+  .size-guide-panel {
+    margin-top: .5rem; padding: .85rem 1rem;
+    background: var(--navy-4); border: 1px solid rgba(255,255,255,.1); border-radius: var(--radius);
+  }
+  .size-guide-panel[hidden] { display: none; }
+  .size-guide-help { font-size: 12px; color: var(--gray); line-height: 1.6; margin-bottom: .75rem; }
+  .size-guide-help strong { color: var(--cream); font-weight: 600; }
+  .size-guide-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .size-guide-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .size-guide-table th, .size-guide-table td {
+    padding: 7px 8px; text-align: center; white-space: nowrap;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .size-guide-table thead th {
+    font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--gray);
+  }
+  .size-guide-table tbody th { font-weight: 800; color: var(--paper); letter-spacing: .04em; }
+  .size-guide-table td { color: var(--cream); }
+  .size-guide-table tbody tr:last-child th, .size-guide-table tbody tr:last-child td { border-bottom: none; }
+  .size-guide-table tr.is-selected th, .size-guide-table tr.is-selected td {
+    background: var(--red-glow); color: var(--paper);
+  }
+  .size-guide-table tr.is-selected th { box-shadow: inset 3px 0 0 var(--red); }
+  .size-guide-note { font-size: 11px; color: var(--gray); line-height: 1.6; margin-top: .6rem; }
+
   .notify-form { margin-top: .75rem; padding: .85rem 1rem; background: var(--navy-4); border: 1px solid rgba(255,255,255,.1); border-radius: var(--radius); }
   .notify-form p { margin: 0 0 .6rem; font-size: 13px; color: var(--gray); }
   .notify-form-row { display: flex; gap: 8px; }
@@ -1786,10 +1822,122 @@
     }
     document.getElementById('productModalNotify').innerHTML = (sizes.length === 0 && p.stock <= 0) ? notifyFormHtml(null) : '';
 
+    renderSizeGuide(p);
     updateQtyBounds();
     document.getElementById('productModal').classList.add('open');
     document.body.style.overflow = 'hidden';
   }
+
+  // ── Guide des tailles (t-shirt / pantalon) ────────────────────
+  // Mesures du corps en cm. Source : guide des tailles Decathlon
+  // « Vêtements de sport Homme » (tailles universelles). Pour modifier une
+  // valeur, éditer uniquement ce tableau. Chaque guide est affiché pour les
+  // produits dont le nom correspond à `match`, et uniquement pour les tailles
+  // réellement proposées sur le produit.
+  const SIZE_GUIDES = {
+    tshirt: {
+      match: /\bt(?:ee)?[-\s]?shirt/i,
+      measureHtml: '<strong>Tour de poitrine</strong> : mètre ruban à l’endroit le plus fort, sous les aisselles. ' +
+        '<strong>Tour de taille</strong> : au creux, au-dessus du nombril. Ne serrez pas le mètre.',
+      columns: ['Tour de poitrine', 'Tour de taille'],
+      rows: {
+        'XS':  ['84 – 87', '70 – 73'],
+        'S':   ['88 – 91', '74 – 77'],
+        'M':   ['92 – 95', '78 – 81'],
+        'L':   ['96 – 103', '82 – 89'],
+        'XL':  ['104 – 113', '90 – 100'],
+        '2XL': ['114 – 123', '101 – 111'],
+        '3XL': ['124 – 135', '112 – 123'],
+        '4XL': ['136 – 146', '124 – 135'],
+        '5XL': ['147 – 159', '136 – 147']
+      }
+    },
+    pantalon: {
+      match: /pantalon/i,
+      measureHtml: '<strong>Tour de hanches</strong> : à la partie la plus large du bassin. ' +
+        '<strong>Tour de taille</strong> : au creux, au-dessus du nombril. Ne serrez pas le mètre.',
+      columns: ['Tour de hanches', 'Tour de taille'],
+      rows: {
+        'XS':  ['80 – 85', '66 – 71'],
+        'S':   ['86 – 91', '72 – 77'],
+        'M':   ['92 – 97', '78 – 83'],
+        'L':   ['98 – 104', '84 – 89'],
+        'XL':  ['105 – 111', '90 – 97'],
+        '2XL': ['112 – 118', '98 – 105'],
+        '3XL': ['119 – 126', '106 – 113'],
+        '4XL': ['127 – 135', '114 – 123'],
+        '5XL': ['136 – 144', '124 – 133']
+      }
+    }
+  };
+
+  function normalizeSizeLabel(size) {
+    const label = String(size == null ? '' : size).trim().toUpperCase().replace(/\s+/g, '');
+    if (label === 'XXL') return '2XL';
+    if (label === 'XXXL') return '3XL';
+    if (label === 'XXXXL') return '4XL';
+    return label;
+  }
+
+  function sizeGuideFor(product) {
+    const name = String((product && product.name) || '');
+    const key = Object.keys(SIZE_GUIDES).find(function(k) { return SIZE_GUIDES[k].match.test(name); });
+    if (!key) return null;
+    const guide = SIZE_GUIDES[key];
+    const sizes = Array.isArray(product.sizes) ? product.sizes : [];
+    const rows = sizes
+      .map(function(s) { return { size: String(s), key: normalizeSizeLabel(s) }; })
+      .filter(function(r) { return Object.prototype.hasOwnProperty.call(guide.rows, r.key); })
+      .map(function(r) { return { size: r.size, key: r.key, values: guide.rows[r.key] }; });
+    if (rows.length === 0) return null;
+    return { guide: guide, rows: rows };
+  }
+
+  function renderSizeGuide(product) {
+    const wrap = document.getElementById('productModalSizeGuide');
+    if (!wrap) return;
+    const found = sizeGuideFor(product);
+    if (!found) {
+      wrap.hidden = true;
+      wrap.innerHTML = '';
+      return;
+    }
+    const g = found.guide;
+    wrap.innerHTML =
+      '<button type="button" class="size-guide-toggle" id="sizeGuideToggle" aria-expanded="false" aria-controls="sizeGuidePanel">' +
+        '<span aria-hidden="true">📏</span> Guide des tailles</button>' +
+      '<div class="size-guide-panel" id="sizeGuidePanel" hidden>' +
+        '<p class="size-guide-help">' + g.measureHtml + '</p>' +
+        '<div class="size-guide-scroll"><table class="size-guide-table">' +
+          '<thead><tr><th scope="col">Taille</th>' +
+            g.columns.map(function(c) { return '<th scope="col">' + escapeHtml(c) + ' (cm)</th>'; }).join('') +
+          '</tr></thead><tbody>' +
+          found.rows.map(function(r) {
+            return '<tr data-size="' + escapeAttr(r.size) + '"><th scope="row">' + escapeHtml(r.size) + '</th>' +
+              r.values.map(function(v) { return '<td>' + escapeHtml(v) + '</td>'; }).join('') + '</tr>';
+          }).join('') +
+          '</tbody></table></div>' +
+        '<p class="size-guide-note">Entre deux tailles, prenez la plus grande. Mesures du corps, en centimètres.</p>' +
+      '</div>';
+    wrap.hidden = false;
+    document.getElementById('sizeGuideToggle').addEventListener('click', function() {
+      const panel = document.getElementById('sizeGuidePanel');
+      const open = panel.hidden;
+      panel.hidden = !open;
+      this.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+
+  // Met en évidence la ligne de la taille choisie (écoute le clic sur la grille,
+  // sans modifier selectSize).
+  document.addEventListener('click', function(event) {
+    const btn = event.target.closest && event.target.closest('#productModalSizes .size-btn');
+    if (!btn || btn.classList.contains('out-of-stock')) return;
+    const size = btn.getAttribute('data-size');
+    document.querySelectorAll('#productModalSizeGuide tbody tr').forEach(function(tr) {
+      tr.classList.toggle('is-selected', tr.getAttribute('data-size') === size);
+    });
+  });
 
   // ── Alerte de disponibilité (produit/taille en rupture) ──────
   function notifyFormHtml(size) {
@@ -2145,6 +2293,7 @@
         <div class="size-selector-label">Choisir une taille</div>
         <div class="size-grid" id="productModalSizes"></div>
       </div>
+      <div class="size-guide" id="productModalSizeGuide" hidden></div>
       <div class="stock-info" id="productModalStock"></div>
       <div id="productModalNotify"></div>
       <div style="margin-top:1rem">
