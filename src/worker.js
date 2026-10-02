@@ -19,7 +19,7 @@ import { buildDocumentPdfBytes } from './document-template.js';
 import { bytesToBase64 } from './pdf-engine.js';
 import { LOGO_JPG_BASE64, FAVICON_ICO_BASE64, APPLE_TOUCH_ICON_BASE64, ICON_512_BASE64 } from './static-assets.js';
 
-const CLUB_CONTACT_EMAIL = 'fullfightingbons@gmail.com';
+const CLUB_CONTACT_EMAIL = 'club@americanfullfightingbons.fr';
 const MAIL_SENDER_EMAIL = 'contact@americanfullfightingbons.fr';
 const SHOP_BASE_URL = 'https://boutique.americanfullfightingbons.fr/';
 
